@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4-beta.3] - 2026-05-05
+
+Third beta of the `1.2.4` line. Three quality-of-life additions in the
+HA-platform direction — none touch the Ajax wire protocol, all replace
+silent `home-assistant.log` errors with first-class HA UX.
+
+### Added
+- **Reauth flow.** When the Ajax session is rejected (password rotated, account session revoked, 2FA newly enabled, server-side forced logout), the integration now raises `ConfigEntryAuthFailed` instead of `UpdateFailed`. Home Assistant reacts by showing the orange **Reconfigure** banner on the integration card and dispatching the new `async_step_reauth` config-flow path: a single password prompt (with optional TOTP step) that keeps the same `unique_id`, so all entity ids, areas, automations and history survive untouched. Plaintext password never lands on the entry; the freshly minted session token is persisted for the next restart. Email-rename stays under the existing reconfigure flow's responsibility. (#90)
+- **HA Repairs surface for diagnosable conditions.** Three new Repair cards under **Settings → Repairs** — `hub_offline_24h` (a space reported OFFLINE on consecutive snapshots for 24h+; clears as soon as ONLINE returns), `hts_chronic_failure` (HTS reconnect has been failing for 30 min straight; clears on the next successful reconnect), and `fcm_credentials_invalid` (`firebase_messaging` rejected the configured api_key/app_id/project_id/sender_id; clears at every `async_start()` so updating credentials in Options re-evaluates from scratch). All three are `is_fixable=False` in this slice — descriptions tell the user where to act — with stable per-scope `issue_id` namespacing so multi-space / multi-account installs don't collide. (#89)
+- **System Health card.** `Settings → System → Repairs → System Information` now shows a one-line snapshot for Aegis: gRPC host reachability via `system_health.async_check_can_reach_url`, configured-account count, total spaces, ratios of HTS streams and FCM clients alive (`N/M`), total non-deduped pushes received since startup, and humanised "last push" / "last successful poll" ages. Replaces log archaeology as the first triage step for "events stopped arriving" reports. (#91)
+
+### Internal
+- Coordinator gains `is_hts_connected` property + `_first_offline_at` / `_hts_first_failure_at` tracking. `AjaxNotificationListener` gains `pushes_received` / `last_push_at` / `is_fcm_connected` properties and an `entry_id` argument so the FCM repair scopes per-account. New `repairs.py` helper module wraps `homeassistant.helpers.issue_registry` with the domain pre-bound and stable per-scope ids.
+- All 14 translation locales (ca, cs, de, en, es, fr, it, nl, pl, pt-BR, pt, ro, tr, uk) now carry the new `reauth_confirm`, `reauth_2fa`, `issues.*`, and `system_health.info` strings. Best-effort translations; technical tokens (FCM Project ID, MotionCam, security_event, README, HTS, Wi-Fi, gRPC, Home Assistant) kept in English so users find the same string in the docs.
+
 ## [1.2.4-beta.2] - 2026-05-02
 
 Second beta of the `1.2.4` line. Three end-to-end fixes on top of `beta.1`'s per-group alarm panels, all surfaced by @Cingar01 testing the real Hub Hybrid 4G in Zone Mode (#86).
