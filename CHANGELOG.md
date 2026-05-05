@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4-beta.6] - 2026-05-06
+
+Sixth beta of the `1.2.4` line. New `lock` platform on top of `beta.5`. No Ajax wire-protocol changes.
+
+### Added
+- **`lock` platform for Ajax SmartLock and Yale LockBridge** (device types `smart_lock` and `smart_lock_yale`). The integration now exposes a native HA `lock.*` entity per smart lock with three operations wired to the v3 `SwitchSmartLockService.execute` gRPC endpoint: `lock.lock` → `LOCK`, `lock.unlock` → `UNLOCK`, and HA's `lock.open` → `UNLATCH` (pull the latch without keeping the bolt thrown — same semantics as the Ajax mobile app's "unlatch" button). State (locked / unlocked / unlatched) is parsed from the `LightDeviceStatus.smart_lock` `LockStatus` oneof and refreshes both via the hourly poll snapshot and via real-time status updates on the persistent device stream. gRPC failures (lock offline, permission denied, etc.) are caught and logged so a failed call doesn't crash automations; the next coordinator refresh re-syncs the displayed state. (#102)
+
+### Internal
+- New `SmartLockError` exception type and `DevicesApi.switch_smart_lock(space_id, smart_lock_id, action)` wrapping the gRPC stub. `SMART_LOCK_ACTION_LOCK` / `_UNLOCK` / `_UNLATCH` constants exported from `api/devices.py` for callers.
+- `_STATUS_KEY_MAP` in the coordinator gains `smart_lock → smart_lock_state` so streamed status updates land on the same key the snapshot parser uses.
+- `Platform.LOCK` added to the integration's `PLATFORMS` list, bringing the platform count from 8 to 9.
+
 ## [1.2.4-beta.5] - 2026-05-06
 
 Fifth beta of the `1.2.4` line. One additive entity slice on top of `beta.4`. No Ajax wire-protocol changes.
