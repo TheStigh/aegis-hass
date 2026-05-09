@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0-beta.1] - 2026-05-09
+
+First beta of the `1.3.0` line. New `valve` platform on top of `1.2.4`. No Ajax wire-protocol changes.
+
+### Added
+- **Read-only `valve` platform for Ajax WaterStop and WaterStop Fibra** (`water_stop`, `water_stop_base`). The `spread_properties` walker shipped in `1.2.4` (#109) already pulled every other `SpreadProperties` oneof out of `LightHubDevice`; the new `water_stop_channel` branch emits `valve_chN` (open / closed from `STATE_ON` / `STATE_OFF`), `valve_chN_transitioning` (motor moving), and `valve_chN_stuck` (channel-level `MALFUNCTION_IS_STUCK`) keys. New `AjaxValve` (`device_class = WATER`) reads them and reports `is_closed`, `is_opening`, `is_closing`, plus a `stuck` attribute. `STATE_UNKNOWN` / `STATE_UNSPECIFIED` leave the key absent so the entity renders as `unknown` rather than fabricating a closed reading on a comms hiccup. **Read-only on purpose** — there is no `SwitchWaterStopService` in the v3 protos we have, so HA cannot toggle the valve. Surfacing OPEN / CLOSE features would attach buttons that fail silently; `supported_features = 0` and `reports_position = False` keep the entity card honest. Bidirectional control follows once someone with a WaterStop captures the official app's command-side gRPC call. (#117, closes when validated on real hardware)
+
+### Internal
+- The `STATE_ON` → "valve open / water flowing" mapping follows the relay parser convention in the same walker; if real-hardware testing reveals the WaterStop firmware uses the inverted mapping, flipping the comparison in `_parse_spread_properties` is a one-line patch.
+- 19 new unit tests (parser branch + entity state derivation + `device-missing-from-coordinator` defensive paths). Test suite now at 1115 passing, coverage 83.78%, `valve.py` at 100%.
+
 ## [1.2.4] - 2026-05-08
 
 Stable release rolling up the `1.2.4-beta.1` … `1.2.4-beta.11` line. Two big themes: a new device-platform slice (lock + per-group alarm panels + tilt/steam binary sensors) finally turning every advertised Ajax surface into a first-class HA entity, and a sustained boot-time push that drops the integration out of HA's *"integration taking too long"* warning even on multi-account installs. No Ajax wire-protocol changes anywhere in the line.
