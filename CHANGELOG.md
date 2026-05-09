@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0-beta.2] - 2026-05-10
+
+Second beta of the `1.3.0` line. One bug fix on top of `beta.1`. No Ajax wire-protocol changes.
+
+### Fixed
+- **HTS hub-network sensors no longer go permanently `unavailable`** on installs whose hub firmware emits TLV escape sequences we don't recognise. @uddinr's hub was sending a `0x06 0x6A` pair inside an UPDATES payload; the strict `tlv_unescape_param` raised `ValueError` on the unknown pair, the exception bubbled out of `tlv_decode`, out of `_handle_update`, into `_run_hts_lifecycle`'s broad except — terminating the listen task and leaving every Ethernet / Wi-Fi / GSM / mains-power sensor stuck on the previous value forever (because every reconnect hit the same bad message). The parser is now lenient: an unknown `0x06 <byte>` pair is preserved as two literal bytes with a debug log, and an orphan `0x06` at the end of a segment is preserved the same way. The two known escapes (`0x06 0x35` -> `0x05`, `0x06 0x36` -> `0x06`) keep working unchanged. As belt-and-suspenders, `_handle_update` wraps `tlv_decode` in a try/except that drops the offending message instead of killing the listen loop. If `0x6A` turns out to be a third escape code we don't yet know about, the worst case is now a slightly wrong byte in one field rather than the whole HTS surface being dead. (#120, fixes #108)
+
 ## [1.3.0-beta.1] - 2026-05-09
 
 First beta of the `1.3.0` line. New `valve` platform on top of `1.2.4`. No Ajax wire-protocol changes.
