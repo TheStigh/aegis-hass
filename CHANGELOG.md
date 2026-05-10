@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0-beta.3] - 2026-05-10
+
+Third beta of the `1.3.0` line. New device-type slice on top of `beta.2`. No Ajax wire-protocol changes.
+
+### Added
+- **MotionCam Video Doorbell support.** The Video Doorbell, plus its sibling models `motion_cam_video_indoor` and `motion_cam_video_base`, were silently invisible in HA: the Ajax cloud sent them in every snapshot but the integration didn't have them registered, so no entities were created and HA didn't render a device card. They now appear with the standard MotionCam entity set (`motion_detected` + `tamper` binary sensors, plus the device-agnostic `signal_strength` / `battery_level`). Ring-button events are wired from both possible sources: standalone Wireless DoorBell (Jeweller ring button paired with the hub) fires `RingButtonPressed` through `HubEventQualifier`, while MotionCam Video Doorbell fires it through `VideoEventQualifier` (a new Pass 4 in the notification parser handles that). Both converge on `event_type: doorbell_pressed`, fired through the existing per-space `event.aegis_security_event` entity. Video-side `motion_detected` / `human_detected` map to "motion" so they flow through the same surface as motion sensors. Snapshot-on-press / TTS-on-press automations are standard HA from there. **Streaming video / snapshot-on-demand for the Video Doorbell stays out of scope** for this slice — the existing camera platform is photo-on-demand only and would silently fail against the doorbell's video pipeline; that's a separate follow-up. (#121, surfaced by @Permudious in #119)
+
+### Internal
+- New `VIDEO_EVENT_TAG_MAP` parallel to `HUB_EVENT_TAG_MAP` and `SPACE_EVENT_TAG_MAP`, populated with the events that have a HA-meaningful destination today (ring + motion / human detected). The long tail of video-tag events (storage errors, temporary access requests, firmware update progress, etc.) is intentionally left unmapped to avoid inflating `ALL_EVENT_TYPES`.
+- All 14 translation locales carry the new `doorbell_pressed` state string.
+
 ## [1.3.0-beta.2] - 2026-05-10
 
 Second beta of the `1.3.0` line. One bug fix on top of `beta.1`. No Ajax wire-protocol changes.
