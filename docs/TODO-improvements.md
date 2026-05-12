@@ -33,6 +33,18 @@ Prioritized list of remaining improvements based on HA platinum integration patt
 
 ## Priority 1 — High impact, moderate effort
 
+### 1.0 Parser hardening — robustness pass after the beta.5/beta.6 regression
+**Why:** `1.3.0-beta.5` extended `parse_device` to a new `LightDevice` oneof case (`video_edge_channel`), which exposed a latent bug in `_parse_statuses`: `int(status.wifi_signal_level_status)` on a sub-message wrapping the enum. The existing test used `MagicMock` and silently let `int(...)` succeed — exactly the *MagicMock-hides-bugs* pattern in `feedback_proto_test_realism.md`. Fixed point-wise in `1.3.0-beta.6` (#125), but other status branches likely have the same shape-mismatch waiting to surface on a future device kind.
+
+**Three concrete mitigations (do all three in the same PR):**
+1. **Sweep every branch of `_parse_statuses` to real-proto tests.** Replace each `MagicMock`-based unit test with a real `LightDeviceStatus` instance carrying the matching sub-message. Audit at least: `signal_strength`, `gsm_status`, `sim_status`, `monitoring`, `battery`, `temperature`, `smart_lock`, `wire_input_status`, `transmitter_status`, `life_quality` — every branch that touches a sub-message field. The act of writing a real-proto test forces you to look at the actual field shape, which is where the latent bugs hide.
+2. **Wrap `_run_stream`'s per-device parse in try/except.** Today a single device that raises during `parse_device` kills the whole stream task and triggers exponential-backoff reconnects (what @Permudious saw — 21 occurrences of "Device stream error, reconnecting in 5s/10s/20s/…"). Catch the exception, log at WARNING with the device id (so it's debuggable), drop that one device, keep the rest of the stream alive.
+3. **Add an end-to-end snapshot-replay test.** Capture a real `StreamLightDevicesResponse` from at least one install with a `video_edge_channel` device (Permudious's would do — ask him to capture). Replay it through the parser in CI so any future regression that breaks parsing on his shape fails loudly before merge.
+
+**Effort:** 3-4 h. Tracked as a follow-up to #119.
+
+---
+
 ### 1.1 Valve Platform (`valve.py`) — bidirectional control
 **Why:** Read-only valve entity shipped in `1.3.0` (#117). The remaining gap is **opening / closing the valve from HA** — automations can react to the valve being closed by a leak, but can't trigger the shut-off themselves nor reopen after a false-positive.
 
