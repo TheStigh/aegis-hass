@@ -362,6 +362,15 @@ Three of the four values are plain strings in the app's `res/values/strings.xml`
 
 > **iOS users:** the iOS Ajax app ships these values in `GoogleService-Info.plist` inside the signed `.ipa` bundle, which is encrypted and cannot be inspected without a jailbroken device. In practice, even if you use the Ajax app on iPhone day-to-day, **extract the credentials from the Android APK** — the Firebase project is the same on both platforms (same `project_id`, `google_app_id`, `gcm_defaultSenderId` and `google_api_key`), so values pulled from the Android build work for FCM push delivery on a Home Assistant install regardless of which OS you personally use.
 
+### Sanity-check before submitting
+
+Two quick consistency checks that catch the most common "credentials rejected" reports:
+
+1. **`fcm_sender_id` must equal the digit chunk between the first two colons of `fcm_app_id`.** Example: if `fcm_app_id = 1:608123456502:android:…`, then `fcm_sender_id` is `608123456502`. If they don't match, those two values came from different Firebase projects.
+2. **`fcm_api_key` and `fcm_project_id` must come from the same Firebase project too** — i.e. extracted together as a set, not picked individually from different sources.
+
+If both checks pass and submission still fails, the WARNING line emitted by the integration (visible at HA's default log level under **Settings → System → Logs**) names the specific subsystem that rejected: project consistency, app-id format, or a network-reach issue with Google's FCM hosts.
+
 If FCM credentials are not configured, the integration will still work using the persistent gRPC stream for real-time updates. FCM adds an additional push notification channel for faster event delivery and enables Photo on Demand URL retrieval.
 
 ## Translations
