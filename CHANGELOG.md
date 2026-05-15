@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0-beta.11] - 2026-05-16
+
+Eleventh beta of the `1.3.0` line. Refinement of the FCM error-classifier shipped in `beta.10`; no Ajax wire-protocol changes; no UI / Repair behaviour changes.
+
+### Changed
+- **FCM failure WARNINGs now match the strings `firebase-messaging` actually raises.** The classifier added in `beta.10` (#132) matched four substrings inferred from the library source. Validation against the library's actual runtime behaviour showed two of those branches cannot fire in production — `firebase-messaging` wraps its HTTP layer behind internal logger calls, so the `403` / `API key not valid` wording and the generic network tokens (`connection`, `timeout`, `failed to resolve`) never reach `str(exc)`. The library's public `register()` entrypoint raises three fixed `RuntimeError` strings: `Unable to establish subscription with Google Cloud Messaging.` is the dominant credential-set error (where Hansontech190's #131 landed); `Unable to register with fcm` indicates a malformed `fcm_app_id`; `Unable to register and check in to gcm` is an unambiguous network signal (the GCM checkin step uses none of the four credentials). The classifier now matches those three strings, drops the two unreachable branches, and keeps the generic fallback for any future shape change. Same `fcm_credentials_invalid` card raised in every failure path — only the log line gets sharper. (#133)
+
 ## [1.3.0-beta.10] - 2026-05-14
 
 Tenth beta of the `1.3.0` line. Diagnostic-quality improvement on top of `beta.9`; no Ajax wire-protocol changes; no UI / Repair behaviour changes.

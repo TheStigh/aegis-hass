@@ -45,3 +45,6 @@ docs/design-specs/
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Internal investigation notes (local only)
+docs/internal/
