@@ -5,77 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0-beta.7] - 2026-05-17
+## [1.4.0] - 2026-05-17
 
-Transparency beta. Two changes targeted at honesty of the user-visible state.
-
-### Added
-- **`release_summary` on `update.hub_firmware`.** Clicking the entity in HA's dashboard surfaces a short explanation in the detail panel: "Up-to-date" only means "Ajax has not queued an update for this hub right now". The actual installed firmware version is not carried by the Ajax stream and we can't compare against any catalog, so the absence of a queued update is the only signal we have. When an update IS queued the summary names the target version and notes that the integration cannot trigger or skip the install. (#144)
-
-### Fixed
-- **Electrical-reading sensors keep their last known value across restarts.** Bruno reported that on his hub the WallSwitch readings sub-keys are absent from the boot snapshot — the hub only emits them via per-device delta pushes when the load actually changes. For loads that run constant for hours (relay driving fixed-speed ventilation), no delta arrives until the load shifts, so `current` / `voltage` / `energy_consumed` / `power_derived` rendered `unknown` after every restart for an arbitrary amount of time. The four sensor classes now extend HA's `RestoreSensor` and fall back to the persisted last-known value when no live reading is available. The Energy dashboard's `total_increasing` semantics are preserved. (#144, #123)
-
-## [1.4.0-beta.6] - 2026-05-17
-
-Hotfix for `1.4.0-beta.5`: the new `update.hub_firmware` entity rendered as `unknown` ("Firmware desconocido") on healthy installs instead of "Up-to-date".
-
-### Fixed
-- **`update.hub_firmware` entity now renders as "Up-to-date" when no firmware update is pending.** HA's `UpdateEntity.state` returns `unknown` whenever either `installed_version` or `latest_version` is `None`; the beta.5 entity left both `None` for the no-pending-update case. The entity now reports a constant `installed_version` and mirrors it on `latest_version` when no update is queued (state lands on `STATE_OFF`, rendered as "Up-to-date"); when an update IS queued, `latest_version` reflects the pending version and the state flips to `STATE_ON` ("Update available"). (#143)
-
-## [1.4.0-beta.5] - 2026-05-17
-
-Adds a read-only firmware update entity for each Ajax hub. One entity per hub, **no install button** — the integration never triggers a firmware update from HA. Bringing the integration to **11 HA platforms**.
+Stable release rolling up the `1.4.0-beta.1` … `1.4.0-beta.7` line. Two big themes: **WallSwitch / Socket electrical readings** (`current` A, `voltage` V, `energy_consumed` kWh wired into HA's Energy dashboard, opt-in `power_derived` W) — closes the largest user-visible gap in the integration's device surface — and a new **read-only firmware update entity** for each Ajax hub, bringing the integration to **11 HA platforms**. Also adds an unambiguous deletion path for FCM credentials in the options form. No Ajax wire-protocol changes; everything was already on the wire and the integration was either silent or fragile around it. MINOR bump because new functionality ships; no breaking changes.
 
 ### Added
-- **`update.<hub>_firmware` entity per hub.** Surfaces the pending hub firmware update Ajax has queued: shows the target version with a download progress indicator while the cloud is pushing bytes, renders as "up to date" when no update is pending. **Read-only on purpose** — no install feature is declared and `async_install` is not implemented, so HA renders no install button at all. Firmware updates remain Ajax-scheduled and Ajax-triggered; this entity is informational. The current installed version is not exposed by the Ajax stream, so HA renders the entity as "<latest> available" with progress when an update is in flight. Translations in all 14 locales. (#142)
-
-## [1.4.0-beta.4] - 2026-05-17
-
-Follow-up to `1.4.0-beta.2`: the previous fix for clearing FCM credentials in the options form was incomplete. Hansontech190 reported on #138 that on beta.3 the credentials still re-appear, with the extra clue that the API Key field "shows the original key in grey" when cleared — the password field can't be reliably emptied through the UI. The persistence handler was correct; the form schema was the problem.
-
-### Added
-- **"Delete FCM credentials" toggle** in the options form. Toggling it on and saving drops all four FCM keys from the entry unconditionally, regardless of what the form fields currently contain. The unambiguous deletion path, immune to the password-field UI quirk. Translations in all 14 locales. (#141, follow-up to #139, fixes #138)
-
-### Fixed
-- **FCM fields now respect empty submissions.** Switched the four FCM voluptuous fields from `default=` to `description={"suggested_value": ...}`. The frontend still pre-fills the prior value as a suggestion, but voluptuous no longer re-fills missing keys, so an empty submission stays empty end-to-end instead of being silently restored to the prior value. (#141)
-
-## [1.4.0-beta.3] - 2026-05-17
-
-Beta against `1.4.0-beta.1`'s WallSwitch electrical surface. Two changes on top of `1.4.0-beta.2`: the load-bearing readings no longer disappear on every relay toggle, and the WallSwitch's actual line voltage is now exposed as a sensor (driving the derived-power calculation from a real reading instead of a 230 V constant).
-
-### Added
-- **Live line voltage sensor for WallSwitch / Socket-family devices** (`sensor.<name>_voltage`, V, `device_class=voltage`, `state_class=measurement`). Newer WallSwitch firmwares do report measured voltage to the hub; the previous beta assumed they didn't and used a fixed 230 V baseline. The new entity matches the value the official Ajax app shows for the same device (228-231 V on a 230 V mains, surfaced by @brunovdw68 in #123). Translations in all 14 locales. (#140, surfaced by @brunovdw68 in #123)
+- **Electrical readings for WallSwitch and Socket-family devices** (#123, #137, #140). Each WallSwitch / Socket / `relay` / `relay_fibra_base` / `socket_b` / `socket_g` / `socket_outlet_type_e` / `socket_outlet_type_f` / `socket_type_g_plus` now exposes four sensors that mirror what the official Ajax app shows on the device card: `sensor.<name>_current` (A, `device_class=current`, `state_class=measurement`), `sensor.<name>_voltage` (V, `device_class=voltage`, `state_class=measurement`), `sensor.<name>_energy_consumed` (kWh, `device_class=energy`, `state_class=total_increasing` — ties into HA's Energy dashboard with proper meter-reset semantics), and `sensor.<name>_power_derived` (W, `device_class=power`, disabled by default, computed as `current × voltage` when the device reports a voltage and falling back to a nominal 230 V baseline otherwise). Values arrive through HTS in the per-device payload alongside the existing hub fields. The four sensors now survive HA restarts via `RestoreSensor` — on some hub firmwares the readings are absent from the boot snapshot and only arrive via per-device delta pushes on change, so without restoration a constant load (e.g. relay driving fixed-speed ventilation) would render `unknown` for hours after every restart. Translations in all 14 locales.
+- **`update.<hub>_firmware` entity per hub** (#142, #143, #144). Surfaces the pending hub firmware update Ajax has queued: shows the target version with a download progress indicator while the cloud is pushing bytes, renders as "Up-to-date" when no update is pending. **Read-only on purpose** — no install feature is declared and `async_install` is not implemented, so HA renders no install button at all; firmware updates remain Ajax-scheduled and Ajax-triggered. A `release_summary` on the entity detail panel clarifies that "Up-to-date" only means "no update queued right now" (the actual installed firmware version is not carried by the Ajax stream). **11th HA platform.** Translations in all 14 locales.
+- **"Delete FCM credentials" toggle** in the options form (#141). Toggling it on and saving drops all four FCM keys from the entry unconditionally, regardless of what the form fields currently contain. The unambiguous deletion path, immune to a HA frontend quirk where a `TextSelectorType.PASSWORD` field with a pre-filled default can't be reliably emptied through the UI. Translations in all 14 locales.
+- **Per-device extraction in HTS bodies** (#137). The parser now walks the entire status/settings payload and emits one record per device — previously it only extracted the hub's row and dropped every other device's data silently. Used by the readings parser above.
 
 ### Changed
-- **`power_derived` now uses the device-reported voltage instead of a fixed 230 V.** When the WallSwitch reports a voltage, the sensor renders `current × voltage`; the 230 V baseline survives only as the fallback for firmwares that don't emit a voltage reading. Same product the official app uses on the same device card, so the HA value stays in lock-step with what the user sees. (#140)
+- **HTS per-device delta pushes are now consumed in place** (#137). Per-device deltas from the hub carry the same shape as one row of the periodic full snapshot. They're routed through the same callback the readings parser uses for the boot snapshot, so live electrical readings feel near-instant (whatever debounce window the hub applies) instead of waiting for the next periodic refresh. Subsumes the silent-drop behaviour added in `1.3.0-beta.7` (#128 / #111): the problem there was firing a snapshot refresh on every heartbeat (~8.6 KB round-trip), not the drop itself; we now read the delta in-place and never schedule a refresh from it.
+- **FCM credential fields use `suggested_value` instead of `default`** (#141). The four FCM fields in the options form previously declared `default=existing_value`, which made voluptuous re-inject the prior value when the frontend omitted the key on submit — a path Hansontech190 reported on #138 with the password field that doesn't reliably round-trip empty. The fields now use `description={"suggested_value": ...}` so an empty submission stays empty end-to-end. Combined with the explicit clear toggle above.
 
 ### Fixed
-- **WallSwitch electrical sensors no longer drop to `unknown` on every relay toggle.** Per-device delta pushes from the hub rebuilt the readings snapshot from scratch on every message: deltas that didn't carry the current / energy fields produced an all-empty snapshot and overwrote the cached values, leaving `current`, `energy_consumed` and `power_derived` rendering `unknown` until the next periodic full snapshot (~60 s). `energy_consumed` reappeared on a different cadence than `current` because the two values are pushed independently. The parser now merges deltas against the cached snapshot, so only fields actually present in the new message get updated. Boot-time full snapshots are unchanged. (#140, fixes regression in `1.4.0-beta.1`, reported by @brunovdw68)
+- **WallSwitch electrical sensors no longer drop to `unknown` on every relay toggle** (#140, regression introduced in `1.4.0-beta.1`, reported by @brunovdw68 in #123). Per-device delta pushes from the hub rebuilt the readings snapshot from scratch on every message: deltas that didn't carry the current / energy fields produced an all-empty snapshot and overwrote the cached values, leaving the sensors rendering `unknown` until the next periodic full snapshot. The parser now merges deltas against the cached snapshot, so only fields actually present in the new message get updated.
+- **Clearing FCM credentials in the options flow now actually removes them** (#139, #141, fixes #138, reported by @Hansontech190). Until `1.4.0` the options handler silently treated empty submissions as "no change" instead of "clear", so credentials could never be removed through the UI. Two iterations: the persistence handler was fixed in `beta.2`; `beta.4` added the explicit clear toggle and switched the schema to `suggested_value` after the password-field UI quirk surfaced.
+- **`update.hub_firmware` entity renders as "Up-to-date" when no firmware update is pending** (#143). HA's `UpdateEntity.state` returns `unknown` whenever either `installed_version` or `latest_version` is `None`; the entity now reports a constant `installed_version` and mirrors it on `latest_version` when no update is queued, landing on `STATE_OFF` ("Up-to-date") instead.
+- **`power_derived` uses the device-reported voltage** (#140). When the WallSwitch reports a voltage, the sensor renders `current × voltage`; the 230 V baseline survives only as the fallback for firmwares that don't emit a voltage reading.
 
 ### Internal
-- Test suite grew to **1215** unit tests, coverage 85.46%. New cases cover voltage parsing, partial-update merge for all three readings, and the `power_derived` fallback path when voltage is absent.
-
-## [1.4.0-beta.2] - 2026-05-17
-
-Bug-fix beta on top of `1.4.0-beta.1`. One change: FCM credential fields in **Settings → Options** can now be cleared from the UI.
-
-### Fixed
-- **Clearing FCM credentials in the options flow now actually removes them.** Until this release, emptying the four FCM fields (`fcm_project_id`, `fcm_app_id`, `fcm_api_key`, `fcm_sender_id`) and saving left the previous values in `entry.data`, so reopening the options form re-populated the stale credentials and there was no way to remove them through the UI. An empty submitted field is now treated as an explicit deletion: the key is dropped from `entry.data`. Mixed submissions (some cleared, some changed) keep the changed values and drop the cleared ones in the same update. The `fcm_not_configured` Repair card is raised again on next start once all four are cleared, matching the no-credentials path on a fresh install. (#139, fixes #138, reported by @Hansontech190)
-
-## [1.4.0-beta.1] - 2026-05-17
-
-First beta of the `1.4.0` line. Opens with **WallSwitch / Socket electrical readings** (#123) and a structural cleanup of the HTS update path: per-device delta pushes from the hub are now consumed in place instead of dropped silently. MINOR bump because three new sensor entity classes ship; no breaking changes.
-
-### Added
-- **Electrical readings for WallSwitch and Socket-family devices.** Each WallSwitch / Socket / `relay` / `relay_fibra_base` / `socket_b` / `socket_g` / `socket_outlet_type_e` / `socket_outlet_type_f` / `socket_type_g_plus` now exposes three sensors that mirror what the official Ajax app shows on the device card: `sensor.<name>_current` (A, `device_class=current`, `state_class=measurement`), `sensor.<name>_energy_consumed` (kWh, `device_class=energy`, `state_class=total_increasing` — wires into HA's Energy dashboard with proper meter-reset semantics), and `sensor.<name>_power_derived` (W, `device_class=power`, opt-in / disabled by default, derived as `current × NOMINAL_GRID_VOLTAGE_V` because this beta assumed the WallSwitch firmware did not report measured voltage). Values arrive through HTS in the per-device payload alongside the existing hub fields; confirmed against @brunovdw68's debug log on #123. (#123, #137, surfaced by @brunovdw68 in #123)
-- **Per-device extraction in HTS bodies.** The parser now walks the entire status/settings payload and emits one record per device — previously it only extracted the hub's row and dropped every other device's data silently. Used by the readings parser above. (#137)
-- **Translations in 14 locales** (ca, cs, de, en, es, fr, it, nl, pl, pt, pt-BR, ro, tr, uk) for the three new sensor names (`current`, `energy_consumed`, `power_derived`).
-
-### Changed
-- **HTS per-device delta pushes are now consumed in place.** Per-device deltas from the hub carry the same shape as one row of the periodic full snapshot. They're routed through the same callback the readings parser uses for the boot snapshot, so live electrical readings feel near-instant (whatever debounce window the hub applies) instead of waiting for the next periodic refresh. Subsumes the silent-drop behaviour added in `1.3.0-beta.7` (#128 / #111): the problem there was firing a snapshot refresh on every heartbeat (~8.6 KB round-trip), not the drop itself; we now read the delta in-place and never schedule a refresh from it. (#137)
-
-### Internal
-- Test suite grew from **1157** (1.3.0) to **1198** unit tests, coverage 85.37%. New `TestExtractAllDevicesKv`, `TestStatusUpdatePush`, `TestParseDeviceReadings`, `TestOnHtsDeviceKv`, `TestAjaxDeviceElectricalSensors` cover the parser + push handler + coordinator routing + sensor entity surface.
+- Test suite grew from **1157** (`1.3.0`) to **1248** unit tests; coverage 85.76% (was 85.13%). New `TestExtractAllDevicesKv`, `TestStatusUpdatePush`, `TestParseDeviceReadings`, `TestOnHtsDeviceKv`, `TestAjaxDeviceElectricalSensors`, `TestParseFirmwareFromHubObject`, `TestGetFirmwareInfo`, `TestHubFirmwareRefresh`, `TestAjaxHubFirmwareUpdate`, `TestHubFirmwareUpdateInfo` cover the parser + push handler + coordinator routing + sensor entity surface + the new firmware update path.
+- All four electrical-reading sensor classes share a common `_AjaxDeviceReadingsBase` that handles `RestoreSensor` integration; subclasses provide `_live_native_value` rather than overriding `native_value` directly. The base class falls back to the persisted last-known value when no live reading is available and filters non-numeric persisted states.
 
 ## [1.3.0] - 2026-05-16
 
