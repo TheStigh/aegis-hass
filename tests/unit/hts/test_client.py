@@ -497,6 +497,404 @@ class TestHandleUpdate:
         assert client._receive_message.await_count == MAX_CONSECUTIVE_READ_TIMEOUTS
         assert client._consecutive_read_timeouts == MAX_CONSECUTIVE_READ_TIMEOUTS
 
+
+class TestExtractAllDevicesKv:
+    """Per-device kv extraction for the #123 probe.
+
+    Generalises `_extract_device_kv` (which returns kv for one specific
+    device) to walk the entire body and emit one (device_id, kv) tuple
+    per device marker. DEBUG-only consumer today — wired in
+    `_handle_update` to surface what sub-keys non-hub devices carry,
+    ahead of mapping them to sensors.
+    """
+
+    def test_empty_params_yields_empty_list(self) -> None:
+        assert HtsClient._extract_all_devices_kv([]) == []
+
+    def test_sub_key_without_markers_yields_empty_list(self) -> None:
+        # `params[0]` is the sub-key byte; if there is no 4-byte device
+        # marker afterwards, nothing should be reported.
+        assert HtsClient._extract_all_devices_kv([b"\x09"]) == []
+
+    def test_single_device_returns_its_kvs(self) -> None:
+        hub_id = bytes.fromhex("12345678")
+        result = HtsClient._extract_all_devices_kv(
+            [
+                b"\x09",  # sub_key (STATUS_BODY)
+                hub_id,
+                b"\x48",
+                b"\x02",
+                b"\x37",
+                b"\xab\xcd",
+            ]
+        )
+        assert result == [(hub_id, {0x48: b"\x02", 0x37: b"\xab\xcd"})]
+
+    def test_two_devices_separated_correctly(self) -> None:
+        hub_id = bytes.fromhex("12345678")
+        wallswitch_id = bytes.fromhex("311B058D")
+        result = HtsClient._extract_all_devices_kv(
+            [
+                b"\x09",
+                hub_id,
+                b"\x48",
+                b"\x02",
+                wallswitch_id,
+                b"\x42",
+                b"\x00\x28",  # current_ma = 40
+                b"\x43",
+                b"\x00\x09",  # power_wth = 9
+            ]
+        )
+        assert result == [
+            (hub_id, {0x48: b"\x02"}),
+            (wallswitch_id, {0x42: b"\x00\x28", 0x43: b"\x00\x09"}),
+        ]
+
+    def test_two_byte_keys_are_skipped(self) -> None:
+        # Same rule as `_extract_device_kv`: 1-byte keys only, 2-byte
+        # extended keys are intentionally not surfaced.
+        hub_id = bytes.fromhex("12345678")
+        result = HtsClient._extract_all_devices_kv(
+            [
+                b"\x09",
+                hub_id,
+                b"\xff\xee",  # 2-byte extended key
+                b"\x01",
+                b"\x37",
+                b"\xab",
+            ]
+        )
+        assert result == [(hub_id, {0x37: b"\xab"})]
+
+    def test_orphan_params_before_first_marker_are_skipped(self) -> None:
+        # Garbage / unexpected leading params (no preceding device id)
+        # should not crash and should not associate with any device.
+        hub_id = bytes.fromhex("12345678")
+        result = HtsClient._extract_all_devices_kv(
+            [
+                b"\x09",
+                b"\x99",  # orphan single byte before any marker
+                hub_id,
+                b"\x48",
+                b"\x02",
+            ]
+        )
+        assert result == [(hub_id, {0x48: b"\x02"})]
+
+
+class TestHandleUpdateNonHubProbe:
+    """DEBUG probe for non-hub device sub-keys in STATUS / SETTINGS bodies (#123)."""
+
+    @pytest.mark.asyncio
+    async def test_non_hub_device_subkeys_are_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        caplog.set_level(logging.DEBUG, logger="custom_components.aegis_ajax.api.hts.client")
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x09",
+                    bytes.fromhex("12345678"),
+                    b"\x48",
+                    b"\x02",
+                    bytes.fromhex("311B058D"),
+                    b"\x42",
+                    b"\x00\x28",
+                    b"\x43",
+                    b"\x00\x09",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        probe_lines = [r for r in caplog.records if "#123 probe" in r.getMessage()]
+        assert probe_lines, "expected one #123 probe DEBUG line"
+        text = probe_lines[0].getMessage()
+        assert "311B058D" in text
+        assert "0x42" in text
+        assert "0x43" in text
+
+    @pytest.mark.asyncio
+    async def test_on_device_kv_fires_once_per_non_hub_device(self) -> None:
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        captured: list[tuple[str, str, dict[int, bytes]]] = []
+        client._on_device_kv = lambda hub_id, did, kv: captured.append((hub_id, did, kv))
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x09",
+                    bytes.fromhex("12345678"),
+                    b"\x48",
+                    b"\x02",
+                    bytes.fromhex("311B058D"),
+                    b"\x42",
+                    b"\x00\x28",
+                    b"\x43",
+                    b"\x00\x09",
+                    bytes.fromhex("AABBCCDD"),
+                    b"\x05",
+                    b"\x01",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        assert captured == [
+            ("12345678", "311B058D", {0x42: b"\x00\x28", 0x43: b"\x00\x09"}),
+            ("12345678", "AABBCCDD", {0x05: b"\x01"}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_on_device_kv_skips_empty_device_rows(self) -> None:
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        captured: list[tuple[str, str, dict[int, bytes]]] = []
+        client._on_device_kv = lambda hub_id, did, kv: captured.append((hub_id, did, kv))
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x09",
+                    bytes.fromhex("12345678"),
+                    b"\x48",
+                    b"\x02",
+                    # Lone device marker without any kv pairs — must not
+                    # emit (otherwise the coordinator wakes up for nothing).
+                    bytes.fromhex("AABBCCDD"),
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        assert captured == []
+
+    @pytest.mark.asyncio
+    async def test_on_device_kv_callback_exception_doesnt_break_loop(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging as _logging
+
+        caplog.set_level(_logging.ERROR, logger="custom_components.aegis_ajax.api.hts.client")
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+
+        def _raises(hub_id: str, did: str, kv: dict[int, bytes]) -> None:
+            raise RuntimeError("synthetic")
+
+        client._on_device_kv = _raises
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x09",
+                    bytes.fromhex("12345678"),
+                    b"\x48",
+                    b"\x02",
+                    bytes.fromhex("311B058D"),
+                    b"\x42",
+                    b"\x00\x28",
+                ]
+            ),
+        )
+
+        # Must not raise out of _handle_update — the listen loop has to
+        # survive a buggy coordinator callback (#108 / parser hardening
+        # mindset). The error must be logged with exc_info though.
+        await client._handle_update(msg)
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert any("on_device_kv callback raised" in r.getMessage() for r in errors)
+
+    @pytest.mark.asyncio
+    async def test_probe_silent_when_only_hub_row_present(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        caplog.set_level(logging.DEBUG, logger="custom_components.aegis_ajax.api.hts.client")
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode([b"\x09", bytes.fromhex("12345678"), b"\x48", b"\x02"]),
+        )
+
+        await client._handle_update(msg)
+
+        probe_lines = [r for r in caplog.records if "#123 probe" in r.getMessage()]
+        assert probe_lines == []
+
+
+class TestStatusUpdatePush:
+    """STATUS_UPDATE (sub-key 11) / SETTINGS_UPDATE (12) push deltas.
+
+    These are emitted by the hub on its own cadence — no client-side
+    subscribe is needed (the audit on PRO 2.47 showed both the single
+    and bulk subscribe msg-types are deprecated and uncalled). The
+    handler must route the per-device kv payload through the same
+    `on_device_kv` callback used for the boot-time STATUS_BODY snapshot,
+    so the coordinator side stays a single code path.
+    """
+
+    @pytest.mark.asyncio
+    async def test_status_update_routes_through_on_device_kv(self) -> None:
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        captured: list[tuple[str, str, dict[int, bytes]]] = []
+        client._on_device_kv = lambda hub_id, did, kv: captured.append((hub_id, did, kv))
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x0b",  # STATUS_UPDATE
+                    bytes.fromhex("311B058D"),
+                    b"\x42",
+                    b"\x00\x28",
+                    b"\x43",
+                    b"\x00\x09",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        assert captured == [
+            ("12345678", "311B058D", {0x42: b"\x00\x28", 0x43: b"\x00\x09"}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_settings_update_routes_through_on_device_kv(self) -> None:
+        # Same routing for sub-key 0x0c. We don't currently consume
+        # settings-only sub-keys but the coordinator's electrical-type
+        # filter is the single gate; emitting them keeps the surface
+        # area uniform.
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        captured: list[tuple[str, str, dict[int, bytes]]] = []
+        client._on_device_kv = lambda hub_id, did, kv: captured.append((hub_id, did, kv))
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x0c",  # SETTINGS_UPDATE
+                    bytes.fromhex("311B058D"),
+                    b"\x40",
+                    b"\x01",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        assert captured == [("12345678", "311B058D", {0x40: b"\x01"})]
+
+    @pytest.mark.asyncio
+    async def test_status_update_with_hub_marker_is_ignored(self) -> None:
+        # Same shape but the device id IS the hub — hub-level deltas
+        # are owned by the `_extract_direct_kv` / `parse_hub_params`
+        # path above; do not double-route them through on_device_kv.
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        captured: list[tuple[str, str, dict[int, bytes]]] = []
+        client._on_device_kv = lambda hub_id, did, kv: captured.append((hub_id, did, kv))
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x0b",
+                    bytes.fromhex("12345678"),
+                    b"\x05",
+                    b"\x01",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        assert captured == []
+
+    @pytest.mark.asyncio
+    async def test_status_update_no_longer_schedules_full_refresh(self) -> None:
+        # Pre-#111 behaviour was a full snapshot round-trip on every
+        # sub-key 11 (every few seconds — the original WallSwitch
+        # bandwidth bug). Confirm the new path consumes the delta
+        # without firing `_schedule_hub_refresh`.
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id="12345678")]
+        client._schedule_hub_refresh = MagicMock()  # type: ignore[method-assign]
+        msg = HtsMessage(
+            sender=0x12345678,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=MsgType.UPDATES,
+            payload=tlv_encode(
+                [
+                    b"\x0b",
+                    bytes.fromhex("311B058D"),
+                    b"\x42",
+                    b"\x00\x28",
+                ]
+            ),
+        )
+
+        await client._handle_update(msg)
+
+        client._schedule_hub_refresh.assert_not_called()
+
+
+class TestPingLoop:
     @pytest.mark.asyncio
     async def test_ping_loop_marks_disconnected_on_send_failure(
         self, monkeypatch: pytest.MonkeyPatch

@@ -109,6 +109,11 @@ class HtsClient:
         self._consecutive_read_timeouts = 0
         self._hub_states: dict[str, HubNetworkState] = {}
         self._on_state_update: Callable[[str, HubNetworkState], None] | None = None
+        # Per-device kv callback wired by the coordinator for #123. The
+        # client itself does not know which devices emit electrical
+        # readings — it just forwards every non-hub kv block from a
+        # STATUS/SETTINGS body and lets the coordinator filter by type.
+        self._on_device_kv: Callable[[str, str, dict[int, bytes]], None] | None = None
         self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
 
     # ------------------------------------------------------------------
@@ -416,13 +421,31 @@ class HtsClient:
     # ------------------------------------------------------------------
 
     async def request_hub_data(self, hub_id: str) -> None:
-        """Send REQUEST_SETTINGS_ID, REQUEST_FULL_SETTINGS, and REQUEST_FULL_STATUS."""
-        hub_id_int = int(hub_id, 16)
+        """Send REQUEST_FULL_SETTINGS *and* REQUEST_FULL_STATUS.
+
+        Used at startup / after the unknown-update fallback path. The
+        periodic refresh loop (#123) uses the lighter
+        `_send_request_full_status` alone — SETTINGS is ~6 KB and only
+        carries config that does not change at runtime, so requesting
+        it every 60s would be pure waste.
+        """
+        await self._send_request_full_settings(hub_id)
+        await self._send_request_full_status(hub_id)
+
+    async def _send_request_full_settings(self, hub_id: str) -> None:
+        """REQUEST_FULL_SETTINGS (sub-key=3) — heavy, ~6 KB response."""
+        await self._send_request_payload(hub_id, sub_key=3, label="REQUEST_FULL_SETTINGS")
+
+    async def _send_request_full_status(self, hub_id: str) -> None:
+        """REQUEST_FULL_STATUS (sub-key=7) — lighter, ~2.7 KB response with live readings."""
+        await self._send_request_payload(hub_id, sub_key=7, label="REQUEST_FULL_STATUS")
+
+    async def _send_request_payload(self, hub_id: str, *, sub_key: int, label: str) -> None:
+        """Generic 3-param REQUEST sender shared by SETTINGS and STATUS variants."""
         if self._writer is None:
             raise HtsConnectionError("Not connected")
-
-        # REQUEST_FULL_SETTINGS (sub-key=3)
-        settings_payload = tlv_encode([bytes([3]), bytes([1]), bytes([1])])
+        hub_id_int = int(hub_id, 16)
+        payload = tlv_encode([bytes([sub_key]), bytes([1]), bytes([1])])
         msg = HtsMessage(
             sender=self._sender_id,
             receiver=hub_id_int,
@@ -430,7 +453,7 @@ class HtsClient:
             link=10,
             flags=0,
             msg_type=MsgType.UPDATES,
-            payload=settings_payload,
+            payload=payload,
         )
         raw = build_message(msg)
         padded = pad16(raw)
@@ -440,38 +463,27 @@ class HtsClient:
             raise HtsConnectionError("Not connected")
         self._writer.write(frame)
         await self._writer.drain()
-        _LOGGER.debug("Sent REQUEST_FULL_SETTINGS to %s", hub_id)
-
-        # REQUEST_FULL_STATUS (sub-key=7)
-        status_payload = tlv_encode([bytes([7]), bytes([1]), bytes([1])])
-        msg2 = HtsMessage(
-            sender=self._sender_id,
-            receiver=hub_id_int,
-            seq_num=self._next_seq(),
-            link=10,
-            flags=0,
-            msg_type=MsgType.UPDATES,
-            payload=status_payload,
-        )
-        raw2 = build_message(msg2)
-        padded2 = pad16(raw2)
-        encrypted2 = encrypt(padded2)
-        frame2 = encode_frame(encrypted2)
-        self._writer.write(frame2)
-        await self._writer.drain()
-        _LOGGER.debug("Sent REQUEST_FULL_STATUS to %s", hub_id)
+        _LOGGER.debug("Sent %s to %s", label, hub_id)
 
     async def listen(
         self,
         on_state_update: Callable[[str, HubNetworkState], None] | None = None,
+        on_device_kv: Callable[[str, str, dict[int, bytes]], None] | None = None,
     ) -> None:
         """Main receive loop: ACK messages and dispatch UPDATES.
 
         Args:
             on_state_update: Optional callback invoked with (hub_id, state) whenever
                              a hub state changes.
+            on_device_kv: Optional callback invoked with (hub_id, device_id_hex, kv)
+                          once per non-hub device row contained in a STATUS_BODY or
+                          SETTINGS_BODY message. `device_id_hex` is upper-case to
+                          match `coordinator.devices` keys. The coordinator decides
+                          which device types consume the kv (#123 electrical
+                          readings live here).
         """
         self._on_state_update = on_state_update
+        self._on_device_kv = on_device_kv
         self._ping_task = asyncio.create_task(self._ping_loop())
 
         # Request hub data immediately (connection is stable now)
@@ -566,6 +578,48 @@ class HtsClient:
                 return
             hub_id_bytes = bytes.fromhex(hub_id)
             kv = self._extract_device_kv(params, hub_id_bytes)
+            # Walk every device row in the body once. Two consumers:
+            #   1. #123 readings — emit each non-hub kv via on_device_kv
+            #      so the coordinator can parse it as `DeviceReadings`
+            #      (current_ma / power_consumed_wh for WallSwitch and
+            #      the Socket family). The client itself stays
+            #      device-type-agnostic.
+            #   2. DEBUG probe — log the sub-keys per device when
+            #      DEBUG logging is on for this module, so the post-
+            #      mortem of an unfamiliar device family is one log
+            #      sample away. Default-level installs pay nothing.
+            non_hub: list[tuple[bytes, dict[int, bytes]]] = [
+                (did, kvs)
+                for did, kvs in self._extract_all_devices_kv(params)
+                if did != hub_id_bytes
+            ]
+            if self._on_device_kv is not None:
+                for did, kvs in non_hub:
+                    if not kvs:
+                        continue
+                    try:
+                        self._on_device_kv(hub_id, did.hex().upper(), kvs)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.exception(
+                            "on_device_kv callback raised for hub %s device %s",
+                            hub_id,
+                            did.hex().upper(),
+                        )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                body_label = "SETTINGS_BODY" if sub_key == 5 else "STATUS_BODY"
+                if non_hub:
+                    summary = ", ".join(
+                        f"{did.hex().upper()}=["
+                        + ",".join(f"0x{k:02x}({len(kvs[k])}b)" for k in sorted(kvs))
+                        + "]"
+                        for did, kvs in non_hub
+                    )
+                    _LOGGER.debug(
+                        "Hub %s: %s non-hub devices (#123 probe): %s",
+                        hub_id,
+                        body_label,
+                        summary,
+                    )
             if kv:
                 _LOGGER.debug(
                     "Hub %s: parsed %d keys from %s",
@@ -598,14 +652,58 @@ class HtsClient:
                 self._on_state_update(hub_id, new_state)
             return
 
-        # Sub-key 11 is the hub-network delta channel. The longer variants
-        # (~50 bytes) carry the anchor keys we recognise and are handled
-        # above. Shorter variants (~34 bytes) appear every few seconds on
-        # some firmwares and only carry fields we don't surface. Falling
-        # through to `_schedule_hub_refresh` here meant a `REQUEST_FULL_
-        # SETTINGS + REQUEST_FULL_STATUS` round-trip on every heartbeat
-        # (#111) — same parser, same keys, no new information. Drop it. (#111)
-        if sub_key == 11:
+        # Sub-keys 11 (STATUS_UPDATE) and 12 (SETTINGS_UPDATE) are the
+        # hub's per-device push channels: the hub emits one of these
+        # whenever any single device's status (11) or settings (12)
+        # change. Payload shape is identical to one device's row inside
+        # a body — `[sub_key, device_id_4b, k1, v1, k2, v2, ...]` — so
+        # the same `_extract_all_devices_kv` walker pulls out the
+        # device id + kv block. Routed through `on_device_kv` so the
+        # coordinator's existing per-device handler (#123) consumes
+        # both the boot-time STATUS_BODY snapshot and these live pushes
+        # via one code path.
+        #
+        # Bandwidth note: longer hub-network variants of these sub-keys
+        # (~50 bytes) were previously diverted to `_extract_direct_kv`
+        # above. That path still fires before this one and handles
+        # hub-network deltas. Anything reaching here is a per-device
+        # delta; if `kvs` is empty (e.g. firmware-internal heartbeat)
+        # the helper just skips. This subsumes the #111 `sub_key == 11
+        # return` drop — the issue there was firing `_schedule_hub_
+        # refresh` on every heartbeat (~8.6 KB round-trip), not the
+        # silent drop itself. Now we read the delta in-place.
+        if sub_key in (11, 12) and hub_id:
+            non_hub = [
+                (did, kvs)
+                for did, kvs in self._extract_all_devices_kv(params)
+                if did != bytes.fromhex(hub_id)
+            ]
+            if self._on_device_kv is not None:
+                for did, kvs in non_hub:
+                    if not kvs:
+                        continue
+                    try:
+                        self._on_device_kv(hub_id, did.hex().upper(), kvs)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.exception(
+                            "on_device_kv callback raised for hub %s device %s",
+                            hub_id,
+                            did.hex().upper(),
+                        )
+            if _LOGGER.isEnabledFor(logging.DEBUG) and non_hub:
+                update_label = "STATUS_UPDATE" if sub_key == 11 else "SETTINGS_UPDATE"
+                summary = ", ".join(
+                    f"{did.hex().upper()}=["
+                    + ",".join(f"0x{k:02x}({len(kvs[k])}b)" for k in sorted(kvs))
+                    + "]"
+                    for did, kvs in non_hub
+                )
+                _LOGGER.debug(
+                    "Hub %s: %s push (#123): %s",
+                    hub_id,
+                    update_label,
+                    summary,
+                )
             return
 
         self._schedule_hub_refresh(hub_id, f"unknown update sub-key {sub_key}")
@@ -699,6 +797,54 @@ class HtsClient:
             # Skip 2-byte keys (extended keys we don't need yet)
             i += 2
         return kv
+
+    @staticmethod
+    def _extract_all_devices_kv(
+        params: list[bytes],
+    ) -> list[tuple[bytes, dict[int, bytes]]]:
+        """Walk the whole body and emit per-device kv tuples.
+
+        Generalises `_extract_device_kv`, which only returns the section
+        belonging to one specific device id. The full body is a flat
+        list shaped as
+
+            [sub_key, marker_A, k1, v1, k2, v2, ..., marker_B, k1, v1, ...]
+
+        where every 4-byte param is a device id marker and the 1-byte
+        params between markers are sub-keys (with the next param as the
+        value). 2-byte extended keys are skipped on purpose — same rule
+        as `_extract_device_kv`. Orphan params before the first marker
+        (the leading sub_key byte, malformed prefixes) are skipped too.
+
+        Returns a list preserving the body's encounter order so callers
+        can distinguish the hub's section (always first today) from
+        per-device sections.
+        """
+        result: list[tuple[bytes, dict[int, bytes]]] = []
+        current_id: bytes | None = None
+        current_kv: dict[int, bytes] = {}
+        i = 0
+        while i < len(params):
+            p = params[i]
+            if len(p) == 4:
+                if current_id is not None:
+                    result.append((current_id, current_kv))
+                current_id = p
+                current_kv = {}
+                i += 1
+                continue
+            if current_id is None:
+                i += 1
+                continue
+            if i + 1 >= len(params):
+                break
+            val_p = params[i + 1]
+            if len(p) == 1:
+                current_kv[p[0]] = val_p
+            i += 2
+        if current_id is not None:
+            result.append((current_id, current_kv))
+        return result
 
     # ------------------------------------------------------------------
     # Ping
