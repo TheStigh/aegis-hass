@@ -31,6 +31,8 @@ Prioritized list of remaining improvements based on HA platinum integration patt
 - ~~WallSwitch / Socket electrical readings~~ (v1.4.0-beta.1 → beta.4) — `sensor.<name>_current` (A), `sensor.<name>_voltage` (V, beta.3+), `sensor.<name>_energy_consumed` (kWh, ties into HA Energy dashboard with `total_increasing`), and `sensor.<name>_power_derived` (W, disabled by default, uses the device-reported voltage when present and falls back to `NOMINAL_GRID_VOLTAGE_V` otherwise). Per-device delta pushes from the hub are consumed in place, with merge semantics so partial updates don't blank the cached readings on every relay toggle (#123, #137, #140, beta.3 partial-update fix in #140)
 - ~~"Delete FCM credentials" toggle in options flow~~ (v1.4.0-beta.2 → beta.4) — explicit boolean that drops the four FCM keys from `entry.data` unconditionally, plus a switch from `default=` to `description={"suggested_value": ...}` so the form fields actually round-trip an empty submission instead of restoring the prior value. Two iterations: #139 fixed the persistence handler, #141 fixed the form schema after Hansontech190 reported the password field couldn't be cleared through the UI (#138, #139, #141)
 - ~~Parser hardening~~ (v1.3.0-beta.7) — `_parse_statuses` sub-message branches now build inputs with real `LightDeviceStatus(...)` instances instead of `MagicMock` (sweep across signal_strength, gsm_status, sim_status, monitoring, life_quality, temperature, wire_input_status, transmitter_status, smart_lock, nfc, motion_detected); per-device / per-update `try/except` in `_run_stream` so one bad device or update no longer kills the stream; `TestSnapshotReplay` deserialises a real `StreamLightDevicesResponse` and replays it end-to-end, with auto-replay over every `tests/fixtures/*.bin` (#126, #127, follow-up to #119)
+- ~~Read-only `update.<hub>_firmware` entity~~ (v1.4.0-beta.5 → beta.7) — surfaces the pending hub firmware update from `streamHubObject` (field 201 `system_firmware_update`). No `INSTALL` feature declared, `async_install` not implemented even though `Start*FirmwareUpdate` RPCs exist in the protos — firmware updates remain Ajax-scheduled and the integration is purely informational. `installed_version` returns a constant placeholder ("current") because Ajax doesn't expose the installed version to clients; `latest_version` mirrors it when no update is queued and reflects the target version when one is. `release_summary` clarifies the semantic gap in the entity detail panel ("Up-to-date" means "no update queued", not "running latest"). **11th HA platform.** Three iterations: beta.5 shipped, beta.6 fixed the `unknown` rendering, beta.7 added the release_summary (#142, #143, #144)
+- ~~`RestoreSensor` on electrical readings~~ (v1.4.0-beta.7) — the four sensor classes (`current`, `voltage`, `energy_consumed`, `power_derived`) now extend `RestoreSensor` so they survive HA restarts. Bruno's hub doesn't include readings in the boot snapshot — only in change-deltas — so for constant loads the sensors went `unknown` for hours after every restart. With this in place, they fall back to the last persisted value until a fresh delta arrives. Caveat: only restores numeric values; if the previous shutdown had the sensor in `unknown`, there's nothing to restore until a delta fires (#144, #123)
 
 ---
 
@@ -47,12 +49,12 @@ Prioritized list of remaining improvements based on HA platinum integration patt
 
 ## Priority 2 — Medium impact, moderate effort
 
-### 2.1 Update Platform (`update.py`)
-**Why:** Users want to see firmware status and update availability.
+### 2.1 Per-device firmware update entities
+**Why:** Hub-level firmware update entity shipped in `1.4.0-beta.5`. The same `streamHubObject` snapshot also exposes per-device firmware updates (field 200 `DeviceFirmwareUpdates`), which would surface as `update.<device>_firmware` entities — useful for installs with many devices on different firmware versions.
 
-**Data source:** `streamHubObject` v2 field 200 (`DeviceFirmwareUpdates`) and field 201 (`SystemFirmwareUpdate`).
+**Effort:** Low-medium (2-3 h). Same read-only-by-design pattern as the hub entity. Per-device entities should be disabled-by-default (typical install has 10-30 devices and most users won't care which sensor is on which firmware unless one is failing).
 
-**Effort:** Medium (3 hours). Need to parse firmware proto fields.
+**Data source:** `HubObject.device_firmware_updates.device_firmware_update[]`, each entry carries `device_id`, `is_critical` (`BoolValue`), and a `Status` oneof with the full `not_started` / `downloading[%]` / `downloaded` / `installing` / `completed` / `failed` cycle.
 
 ### 2.2 Persistent Notification Service
 **Why:** Show alarm events as HA persistent notifications with configurable filters.
