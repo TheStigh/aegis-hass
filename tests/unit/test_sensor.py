@@ -800,6 +800,7 @@ class TestAjaxDeviceElectricalSensors:
         coordinator.device_readings["311B058D"] = DeviceReadings(
             current_ma=40, power_consumed_wh=2409
         )
+        coordinator.async_set_updated_data = MagicMock()
 
         sensor = AjaxDeviceCurrentSensor(coordinator, "311B058D")
         assert sensor.available is True

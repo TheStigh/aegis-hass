@@ -566,6 +566,16 @@ class AjaxHubPowerSensor(_HubNetworkBinarySensor):
         self._attr_unique_id = f"aegis_ajax_{hub_id}_mains_power"
 
     @property
+    def available(self) -> bool:
+        # Operational alert (#146): refusing to fall back to a cached
+        # snapshot here is deliberate. If HTS drops and the hub actually
+        # lost mains during the outage, we don't want this sensor still
+        # reporting `on` from the last delta — that would silence "se fue
+        # la luz" automations. Diagnostic hub_network sensors (IP, SSID,
+        # signal level) DO keep their cached value through the outage.
+        return super().available and self.coordinator.is_hts_alive
+
+    @property
     def is_on(self) -> bool:
         state = self.coordinator.hub_network.get(self._hub_id)
         return state.externally_powered if state else False

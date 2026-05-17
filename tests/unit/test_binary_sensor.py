@@ -20,6 +20,7 @@ from custom_components.aegis_ajax.binary_sensor import (
     AjaxBinarySensor,
     AjaxConnectivitySensor,
     AjaxCraConnectionSensor,
+    AjaxHubPowerSensor,
     AjaxHubWifiSensor,
     AjaxProblemSensor,
 )
@@ -955,3 +956,65 @@ class TestAjaxHubWifiSensor:
     def test_translation_key(self) -> None:
         sensor = AjaxHubWifiSensor(self._make_coordinator(True), "hub-1")
         assert sensor._attr_translation_key == "wifi"
+
+    def test_diagnostic_sensor_stays_available_when_hts_dead(self) -> None:
+        """#146 — diagnostic hub-network sensors render cached value during dropouts."""
+        coordinator = self._make_coordinator(wifi_connected=True)
+        coordinator.is_hts_alive = False
+        sensor = AjaxHubWifiSensor(coordinator, "hub-1")
+        assert sensor.available is True
+        assert sensor.is_on is True
+
+
+class TestAjaxHubPowerSensor:
+    """`mains_power` is the operational alert exception (#146).
+
+    Unlike other hub-network sensors it MUST go `unavailable` while
+    HTS is down — otherwise a real hub power loss during the outage
+    would be silenced by the cached `externally_powered=True` snapshot.
+    """
+
+    def _make_coordinator(
+        self, externally_powered: bool = True, hts_alive: bool = True
+    ) -> MagicMock:
+        hub_device = Device(
+            id="hub-1",
+            hub_id="hub-1",
+            name="Hub Two Plus",
+            device_type="hub_two_plus",
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses={},
+            battery=None,
+        )
+        coordinator = MagicMock()
+        coordinator.devices = {"hub-1": hub_device}
+        coordinator.hub_network = {"hub-1": HubNetworkState(externally_powered=externally_powered)}
+        coordinator.is_hts_alive = hts_alive
+        return coordinator
+
+    def test_is_on_when_externally_powered(self) -> None:
+        sensor = AjaxHubPowerSensor(self._make_coordinator(externally_powered=True), "hub-1")
+        assert sensor.is_on is True
+
+    def test_is_off_when_running_on_battery(self) -> None:
+        sensor = AjaxHubPowerSensor(self._make_coordinator(externally_powered=False), "hub-1")
+        assert sensor.is_on is False
+
+    def test_available_when_hts_alive(self) -> None:
+        sensor = AjaxHubPowerSensor(self._make_coordinator(hts_alive=True), "hub-1")
+        assert sensor.available is True
+
+    def test_unavailable_when_hts_dead(self) -> None:
+        """HTS down → mains_power refuses to fall back to the cached snapshot."""
+        sensor = AjaxHubPowerSensor(self._make_coordinator(hts_alive=False), "hub-1")
+        assert sensor.available is False
+
+    def test_unavailable_when_no_hub_network_yet(self) -> None:
+        coordinator = self._make_coordinator()
+        coordinator.hub_network = {}
+        sensor = AjaxHubPowerSensor(coordinator, "hub-1")
+        assert sensor.available is False
