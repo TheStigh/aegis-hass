@@ -560,14 +560,37 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             task.result()
         self._handle_hts_disconnect()
 
+    @property
+    def is_hts_alive(self) -> bool:
+        """True while the HTS stream client is in place (#146).
+
+        Sensors whose semantics demand a live stream (operational alerts
+        like `mains_power`) should AND their `available` with this so
+        they go `unavailable` during transient HTS dropouts even though
+        the cached value is still present. Diagnostic sensors (IP, SSID,
+        signal level, electrical readings) ignore this and rely on the
+        cached value until the next delta refreshes it.
+        """
+        return self._hts_client is not None
+
     def _handle_hts_disconnect(self, *, reconnect: bool = True) -> None:
-        """Drop stale HTS state so hub network entities become unavailable."""
+        """Drop the live HTS client; preserve cached snapshots (#146).
+
+        The hub keeps every value we cache here (network state, per-device
+        electrical readings) across our socket outage, so wiping them on
+        every transient reconnect blanked sensors for 5+ minutes even
+        though the cached value was still the truth. We now keep them in
+        place — the next STATUS_UPDATE / STATUS_BODY after reconnect
+        refreshes them as deltas arrive. The only deliberate exception
+        is `mains_power` (the operational alert), which opts into
+        `unavailable` via `is_hts_alive` on its `available` property.
+        """
         self._hts_task = None
         self._hts_client = None
-        if self.hub_network or self.device_readings:
-            self.hub_network.clear()
-            self.device_readings.clear()
-            self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+        # Broadcast so coordinator entities re-evaluate `available` —
+        # `mains_power` flips to unavailable here; everything else keeps
+        # its cached state and renders the same value as before.
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
         # Track the first failure of an otherwise-healthy run so we can
         # raise a Repair after a sustained outage. Successful reconnect
         # clears it via `_clear_hts_chronic_failure`. Uses time.monotonic

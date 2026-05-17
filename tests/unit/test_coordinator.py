@@ -432,6 +432,7 @@ class TestAsyncUpdateData:
 
         coordinator = _make_coordinator()
         coordinator._hts_first_failure_at = _time.monotonic() - 31 * 60
+        coordinator.async_set_updated_data = MagicMock()
 
         with patch(
             "custom_components.aegis_ajax.coordinator.async_register_hts_chronic_failure"
@@ -445,6 +446,7 @@ class TestAsyncUpdateData:
     def test_hts_first_disconnect_seeds_timestamp_without_repair(self) -> None:
         """The first HTS disconnect after a healthy run records the time but stays quiet."""
         coordinator = _make_coordinator()
+        coordinator.async_set_updated_data = MagicMock()
         assert coordinator._hts_first_failure_at is None
 
         with patch(
@@ -571,10 +573,11 @@ class TestAsyncUpdateData:
 
     @pytest.mark.asyncio
     async def test_update_restarts_hts_when_previous_task_finished(self) -> None:
+        net_state = HubNetworkState(ethernet_connected=True)
         coordinator = _make_coordinator()
         coordinator._client.session.is_authenticated = True
         coordinator._streams_started = True
-        coordinator.hub_network = {"hub-1": HubNetworkState(ethernet_connected=True)}
+        coordinator.hub_network = {"hub-1": net_state}
         coordinator._hts_task = MagicMock()
         coordinator._hts_task.done.return_value = True
         coordinator._start_hts = AsyncMock()
@@ -589,7 +592,9 @@ class TestAsyncUpdateData:
 
         await coordinator._async_update_data()
 
-        assert coordinator.hub_network == {}
+        # Cached state survives the disconnect cycle (#146); restart is
+        # triggered to refresh it with new deltas.
+        assert coordinator.hub_network == {"hub-1": net_state}
         coordinator._start_hts.assert_awaited_once()
         coordinator.async_set_updated_data.assert_called_once()
 
@@ -917,13 +922,22 @@ class TestStreamHandlers:
         coordinator._handle_status_update("nonexistent", "door_opened", {"op": 1})
         coordinator.async_set_updated_data.assert_not_called()
 
-    def test_handle_hts_disconnect_clears_stale_network_state(self) -> None:
+    def test_handle_hts_disconnect_preserves_hub_network(self) -> None:
+        """#146 — hub_network entries survive transient HTS dropouts.
+
+        Only the live HTS client is torn down; `is_hts_alive` becomes
+        False so the `mains_power` alert flips to unavailable, but all
+        diagnostic hub-network sensors keep rendering their cached
+        value until the next STATUS_BODY refreshes them on reconnect.
+        """
+        state = HubNetworkState(ethernet_connected=True)
         coordinator = self._make_coordinator_with_stream()
-        coordinator.hub_network["hub-1"] = HubNetworkState(ethernet_connected=True)
+        coordinator.hub_network["hub-1"] = state
 
         coordinator._handle_hts_disconnect()
 
-        assert coordinator.hub_network == {}
+        assert coordinator.hub_network == {"hub-1": state}
+        assert coordinator.is_hts_alive is False
         coordinator.async_set_updated_data.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1011,16 +1025,24 @@ class TestStreamHandlers:
         assert "ConnectionRefusedError" in caplog.text
         assert coordinator._hts_client is None
 
-    def test_handle_hts_task_done_clears_state(self) -> None:
+    def test_handle_hts_task_done_drops_client_and_broadcasts(self) -> None:
+        """Task-done routes through `_handle_hts_disconnect` (#146).
+
+        Cached hub_network entries stay intact — only the live client
+        is torn down and a broadcast fires so `is_hts_alive`-aware
+        sensors (e.g. `mains_power`) re-evaluate their availability.
+        """
+        state = HubNetworkState(ethernet_connected=True)
         coordinator = self._make_coordinator_with_stream()
-        coordinator.hub_network["hub-1"] = HubNetworkState(ethernet_connected=True)
+        coordinator.hub_network["hub-1"] = state
         task = MagicMock(spec=asyncio.Task)
         task.cancelled.return_value = False
         task.result.return_value = None
 
         coordinator._handle_hts_task_done(task)
 
-        assert coordinator.hub_network == {}
+        assert coordinator.hub_network == {"hub-1": state}
+        assert coordinator.is_hts_alive is False
         coordinator.async_set_updated_data.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1486,18 +1508,38 @@ class TestOnHtsDeviceKv:
         )
         coordinator.async_set_updated_data.assert_called_once()
 
-    def test_hts_disconnect_clears_device_readings(self) -> None:
-        from custom_components.aegis_ajax.api.hts.hub_state import DeviceReadings
+    def test_hts_disconnect_preserves_cached_state(self) -> None:
+        """#146 — both hub_network and device_readings survive transient dropouts.
+
+        Diagnostic values (IP, SSID, signal level, per-device electrical
+        readings) keep rendering through the dropout. The single
+        broadcast is what lets `mains_power` flip to `unavailable` via
+        its `is_hts_alive`-gated `available` property.
+        """
+        from custom_components.aegis_ajax.api.hts.hub_state import (
+            DeviceReadings,
+            HubNetworkState,
+        )
 
         coordinator = _make_coordinator()
-        coordinator.device_readings["311B058D"] = DeviceReadings(
-            current_ma=40, power_consumed_wh=2409
-        )
+        net_state = HubNetworkState(ethernet_connected=True, wifi_ssid="my-ssid")
+        readings = DeviceReadings(current_ma=40, power_consumed_wh=2409)
+        coordinator.hub_network["hub-1"] = net_state
+        coordinator.device_readings["311B058D"] = readings
+        coordinator._hts_client = MagicMock()
         coordinator.async_set_updated_data = MagicMock()
 
         coordinator._handle_hts_disconnect(reconnect=False)
 
-        assert coordinator.device_readings == {}
-        # Both hub_network and device_readings clear in the same call,
-        # so async_set_updated_data fires exactly once.
+        assert coordinator.hub_network == {"hub-1": net_state}
+        assert coordinator.device_readings == {"311B058D": readings}
+        assert coordinator.is_hts_alive is False
         coordinator.async_set_updated_data.assert_called_once()
+
+    def test_is_hts_alive_reflects_client_presence(self) -> None:
+        coordinator = _make_coordinator()
+        assert coordinator.is_hts_alive is False
+        coordinator._hts_client = MagicMock()
+        assert coordinator.is_hts_alive is True
+        coordinator._hts_client = None
+        assert coordinator.is_hts_alive is False
