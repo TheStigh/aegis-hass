@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-05-18
+
+Patch release fixing a regression in the `binary_sensor.<hub>_conexion_cra` entity. The CRA-connection sensor stopped reflecting the hub's real-time `monitoring.cms_active` flag after `1.2.3-beta.1` and started deriving its state from the `Space.monitoring_companies` snapshot — which is empty for cobranded installs (Protegim, AIKO, others) and for accounts that don't have an explicit APPROVED monitoring-company entry. The entity rendered `off` ("Desconectada") on those installs even with a healthy CMS channel — visibly out of sync with the "Central receptora de alarmas → Conectada" row the Ajax mobile app surfaces from the same hub status. SemVer PATCH; no schema, behaviour, or migration impact for installs whose CRA already showed correctly.
+
+### Fixed
+- **`binary_sensor.<hub>_conexion_cra` reads the hub's `monitoring.cms_active` flag again as the primary signal** (regression from #78 / commit 5699b8f in `1.2.3-beta.1`). The parser still populates `hub.statuses["monitoring_active"]` from the device snapshot's `monitoring` oneof — that's what the Ajax mobile app uses for the "Conectada / Desconectada" row, and it's the right source of truth for real-time channel health. The `space.has_monitoring` derivation is preserved as a fallback for the path #78 cared about (hub firmwares that don't emit a `monitoring` status entry but do have an APPROVED CRA company on the account). `unique_id`, `translation_key`, and `device_class=connectivity` unchanged — no migration impact.
+
+### Internal
+- Test suite at **1261** unit tests (was 1258 in `1.4.3`); coverage 85.88% (was 85.86%). Three new `TestAjaxCraConnectionSensor` cases cover the primary-signal path (`is_on_when_hub_reports_cms_active`, `is_off_when_hub_reports_cms_inactive`, `available_via_hub_status_when_space_snapshot_not_loaded`). The original three fallback tests stay — their fixture sets `hub.statuses = {}` so they implicitly exercise the legacy path.
+
 ## [1.4.3] - 2026-05-18
 
 Patch release. Saving FCM credentials through the integration's Configure menu now reliably restarts the push client end-to-end — no manual reload required. Reported by @ArshSoni in #148 on a fresh `1.4.0` install: the "Push notifications" repair card cleared on save, but real-time pushes (arm/disarm, doorbell, alarm) never reached HA until the integration was reloaded by hand. SemVer PATCH; no schema, behaviour, or migration impact for installs where FCM was already working.
