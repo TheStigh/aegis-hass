@@ -461,21 +461,39 @@ class TestHubMonitoringCompanySensor:
         sensor = AjaxHubMonitoringCompanySensor(coordinator, "space-1", "hub-1")
         assert sensor.native_value == "Central One"
 
-    def test_native_value_returns_multiple_for_multiple_approved_companies(self) -> None:
+    def test_native_value_joins_names_for_multiple_approved_companies(self) -> None:
         coordinator = self._make_coordinator(
             (
                 MonitoringCompany(
-                    name="Central One",
+                    name="Central Two",
                     status=MonitoringCompanyStatus.APPROVED,
                 ),
                 MonitoringCompany(
-                    name="Central Two",
+                    name="Central One",
                     status=MonitoringCompanyStatus.APPROVED,
                 ),
             )
         )
         sensor = AjaxHubMonitoringCompanySensor(coordinator, "space-1", "hub-1")
-        assert sensor.native_value == "multiple"
+        # Sorted alphabetically so the rendered state doesn't flicker between
+        # equivalent polls that happen to return companies in a different order.
+        assert sensor.native_value == "Central One, Central Two"
+
+    def test_native_value_falls_back_to_count_when_joined_names_exceed_state_limit(self) -> None:
+        # HA state strings are truncated at 255 chars. With absurdly long names
+        # the joined form overflows; the sensor falls back to a count sentinel
+        # so the value stays meaningful instead of being clipped mid-name.
+        coordinator = self._make_coordinator(
+            tuple(
+                MonitoringCompany(
+                    name=f"Central {'X' * 60} #{i}",
+                    status=MonitoringCompanyStatus.APPROVED,
+                )
+                for i in range(4)
+            )
+        )
+        sensor = AjaxHubMonitoringCompanySensor(coordinator, "space-1", "hub-1")
+        assert sensor.native_value == "4 companies"
 
     def test_extra_state_attributes_group_companies_by_status(self) -> None:
         coordinator = self._make_coordinator(

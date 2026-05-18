@@ -291,9 +291,13 @@ class AjaxHubMonitoringCompanySensor(CoordinatorEntity[AjaxCobrandedCoordinator]
         approved = [company.name for company in space.approved_monitoring_companies if company.name]
         if not approved:
             return None
-        if len(approved) == 1:
-            return approved[0]
-        return "multiple"
+        # Show the actual names (sorted for stable rendering across polls) so
+        # the card is readable at a glance. HA truncates state strings at
+        # 255 chars; fall back to a count if the joined names exceed that.
+        joined = ", ".join(sorted(approved))
+        if len(joined) > 255:
+            return f"{len(approved)} companies"
+        return joined
 
     @property
     def extra_state_attributes(self) -> dict[str, list[str]]:
