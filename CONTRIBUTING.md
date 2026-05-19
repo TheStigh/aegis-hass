@@ -44,7 +44,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Credentials and secrets
 
-Do not commit FCM credentials (`fcm_project_id`, `fcm_app_id`, `fcm_api_key`, `fcm_sender_id`), Ajax session tokens, OAuth client secrets, or any other credential — in source, tests, fixtures, issues, PR descriptions, or commit messages. Each user supplies their own values through the integration's config flow (Settings → Devices & Services → Aegis for Ajax → Configure) or through the Repair card. Obtaining those values is the user's responsibility and is out of scope for this project's documentation.
+Do not commit FCM credentials (`fcm_project_id`, `fcm_app_id`, `fcm_api_key`, `fcm_sender_id`), Ajax session tokens, OAuth client secrets, or any other credential — in source, tests, fixtures, issues, PR descriptions, or commit messages. Each user supplies their own values through the integration's config flow (Settings → Devices & Services → Aegis for Ajax → Configure) or through the Repair card. See the README's [Where the values live](README.md#where-the-values-live) section for how a user extracts them from their own Ajax mobile app.
 
 Patterns to watch for in `git diff` before staging:
 
