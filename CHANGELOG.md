@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0-beta.9] - 2026-05-21
+
+Follow-up to `1.5.0-beta.8` on #148. The new DisplayGroups extractor was successfully reaching `event_data`, but on Arsh's real install it was returning the 24-char `space_id` (`68f94162415a39f8b8df2e5d`) as `group_id` instead of the actual 8-char Ajax group identifier (`00000001` / `00000002`). The wrong id never matched any real group in `coordinator.spaces[].groups`, so the per-group alarm panel still didn't update.
+
+### Fixed
+- **`group_id` extractor now requires a real `DisplayGroups` shape + Ajax-id sanity.** The beta.8 extractor parsed bytes as `DisplayGroups.Group` directly, so any pair of printable strings in the payload could be mistaken for a Group — and on the real wire the scan happened to latch onto a `(space_id, some_name)` pair before reaching the real `DisplayGroups`. Two reinforcements: (1) parse the PARENT `DisplayGroups`, which requires the bytes to look like a length-delimited list of Group sub-messages (not just one matched pair); (2) sanity-check the resolved `group_hex_id` — capped at 16 chars and hex-only, matching Ajax's observed `00000001`-style identifiers and rejecting the 24-char `space_id` by length alone. Walks every entry in the matched DisplayGroups so a context-first sibling never shadows the active group.
+
+### Internal
+- Test suite at **1310** unit tests (was 1309 in `1.5.0-beta.8`); coverage 86.18%. Test changes drop the unrealistic inner-Group-only positive case (real payloads always wrap), keep the wrapped happy path, and add three regressions: 24-char hex-id reject (the actual beta.8 bug surfaced on #148), non-hex id reject, and "second-group wins after first fails sanity" probe.
+
 ## [1.5.0-beta.8] - 2026-05-21
 
 Per-group push routing fix for #148. Closes the loop on a multi-beta investigation: arming or disarming a single group from the Ajax mobile app should now flip the matching `alarm_control_panel.<group>` entity within ~1 second instead of waiting for the next poll cycle (~5 min).
