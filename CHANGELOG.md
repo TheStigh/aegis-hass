@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0-beta.8] - 2026-05-21
+
+Per-group push routing fix for #148. Closes the loop on a multi-beta investigation: arming or disarming a single group from the Ajax mobile app should now flip the matching `alarm_control_panel.<group>` entity within ~1 second instead of waiting for the next poll cycle (~5 min).
+
+### Fixed
+- **Group identifier is now read from `DisplayGroups.Group`, not `SpaceNotificationSource`.** The hex payload captured by `1.5.0-beta.6`'s diagnostic WARNING revealed that Ajax encodes the group context of `space_group_*` push events in `additional_data.space_display_groups` (a `DisplayGroups` message whose inner `Group` carries `group_hex_id` + `group_name` as plain ASCII strings) — not in the `SpaceNotificationSource` the original heuristic in #161 scanned. That mismatch silently returned `group_id=None` for every group push since 1.5.0-beta.3, which is why per-group panels only refreshed on the next poll. New `_extract_space_group_info` scans for the DisplayGroups wire shape and runs before the legacy SpaceNotificationSource extractor (kept as paranoia for any future Ajax build that also emits there — no production evidence of that path firing today). The diagnostic WARNING + hex dump from beta.6 stays in place so any further unknown wire shape surfaces the same way.
+
+### Internal
+- Test suite at **1309** unit tests (was 1304 in `1.5.0-beta.7`); coverage 86.17%. Four new tests on `_extract_space_group_info` (synthetic Group bytes, Group wrapped in `DisplayGroups` with noise padding, empty payload, outer-wrapper-with-binary-leadbyte path that the printable-only check must skip) plus one end-to-end test through `_parse_and_fire_event` confirming the new path actually populates `group_id` in the dispatched `event_data` and silences the diagnostic WARNING.
+
 ## [1.5.0-beta.7] - 2026-05-21
 
 Setup-flow UX bump driven by #166 (thanks @Sven2410). Adding the integration with an Ajax account that has access to many Spaces — the installer case — used to pre-check every Space and render them as a linear checkbox list, so it was easy to confirm the wrong customer's Space by inertia and slow to scan for the right one.
