@@ -155,7 +155,7 @@ You can type any custom label during setup if yours is not listed.
 | Combi | CombiProtect, CombiProtect S, CombiProtect Fibra | Motion, glass break, tamper, battery |
 | Fire/Smoke | FireProtect, FireProtect Plus, FireProtect 2 (all sub-models — heat-only `*hrb`/`*hsb`, CO-only `*crb`/`*csb`, multi-sensor `*hcrb`/`*hcsb`, AC-powered `*_ac`, UL-listed `*_ul`) | Smoke, steam (FireProtect 2 only — chamber discriminator), CO, high temperature, tamper, battery — sub-models without a given sensor expose only the relevant entity |
 | Water Leak | LeaksProtect | Leak detected, tamper, battery |
-| Relays/Switches | Relay, WallSwitch, Socket (and outlet variants) | On/off per channel; electrical readings (current, voltage, energy, derived power) on WallSwitch / Socket family |
+| Relays/Switches | Relay, WallSwitch, Socket (and outlet variants) | On/off per channel; electrical readings (current, voltage, energy, derived power) on WallSwitch / Socket family. **Outlet Type E and Type F** currently report on/off only — their electrical sub-key layout differs from the rest of the family and is still being mapped; the four electrical sensors render `unknown` until a calibrated capture lands. |
 | Light switches | LightSwitch (Jeweller / Fibra) | On/off per channel |
 | Lights | LightSwitch Dimmer | Brightness control |
 | Locks | SmartLock, LockBridge (Yale) | Lock, unlock, unlatch (HA `lock.open` → momentary unlatch). State surfaces locked / unlocked / unlatched |
