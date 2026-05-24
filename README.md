@@ -399,6 +399,8 @@ Two quick consistency checks that catch the most common "credentials rejected" r
 
 ### If submission still fails
 
+Since `1.5.3-beta.4` the integration also runs the same shape checks above as a **pre-flight** before contacting Google. When something is structurally off (e.g. `fcm_sender_id` doesn't match the digit chunk in `fcm_app_id`), a **Push notifications disabled — FCM credentials malformed** Repair card appears with the specific problem named, and the values aren't sent to Firebase at all. That's faster and clearer than Google's opaque 403.
+
 If the shape checks pass and Google still rejects, the WARNING line under **Settings → System → Logs** names the specific cause (project consistency, app-id format, or network reach to Google's FCM hosts). Re-enter the four values together via the Repair card under **Settings → Repairs** once you have a coherent set.
 
 If you cannot obtain a coherent set, leaving FCM unconfigured is a fully supported (degraded) configuration — device sensors and a polled view of the alarm panel still work.
