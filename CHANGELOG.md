@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3-beta.14] - 2026-05-25
+
+### Internal — refactors only, no functional change
+- **Hub-network sensor classes collapsed from 9 hand-rolled subclasses to one descriptor-driven `AjaxHubNetworkSensor` + a tuple of `_HubNetSpec` entries** (`sensor.py`). Backwards-compatible aliases keep the public names — `AjaxHubConnectionTypeSensor`, `WifiSsidSensor`, `WifiSignalSensor`, `WifiIpSensor`, `EthernetIpSensor`, `EthernetGatewaySensor`, `EthernetDnsSensor`, `CellularSignalSensor`, `CellularNetworkSensor` — wired up so existing call sites and stored entity unique_ids stay identical. Adding a new hub-network sensor is now a single dict entry instead of a 15-line subclass.
+- **Hub-network binary sensors collapsed the same way** (`binary_sensor.py`). Three near-identical classes (`AjaxHubEthernetSensor` / `WifiSensor` / `PowerSensor`) replaced by one `AjaxHubNetworkBinarySensor` with descriptor-driven device_class + state_attr + `require_hts_alive` flag (#146's "don't keep cached mains-power state through an HTS outage" rule lives in the spec now).
+- **Alarm-panel duplication folded into a `_AjaxAlarmPanelBase`** (`alarm_control_panel.py`). Space-level `AjaxAlarmControlPanel` and per-group `AjaxGroupAlarmControlPanel` shared ~180 lines of identical code (PIN validation, force-arm flag, error translation, malfunction-aware `_arm_error`, hub device_info setup). Both now inherit from the base; the group panel also gains the rich `_arm_error` enrichment that was previously only on the space panel. Visible side-effect: arm failures on per-group panels now name the blocking devices/issues in the error message, matching the space-panel behaviour. The literal `"Invalid alarm code"` string previously raised on group panels is now `_translate_error("invalid_alarm_code")` so users see it in their HA language.
+- **`coordinator._async_update_data` (227 lines)** broken into six named sub-steps: `_ensure_authenticated`, `_refresh_spaces`, `_maybe_refresh_sim_and_firmware`, `_maybe_refresh_rooms`, `_first_startup_init`, `_maybe_fallback_device_snapshot`, `_maybe_restart_hts`. The outer method is now a 12-line orchestrator. Each sub-step is independently grep-able and individually testable.
+- **FCM credentials helpers extracted from `notification.py`** to `notification_fcm_creds.py` — `_validate_fcm_shape`, `_classify_fcm_failure`, the two regex constants. Re-exported from `notification.py` so callers (and `tests/unit/test_notification.py`) keep working unchanged. Shaves ~120 lines off the 1057-line notification module.
+
+No user-visible behaviour change; tests stay at 1371 passing, coverage 86.88% (a hair higher than beta.13's 86.63% thanks to fewer redundant subclass branches). Deferred to a future refactor pass: the bigger structural splits (devices.py static parsers, full notification.py event-parser extraction, coordinator god-object decomposition) — they're worthwhile but carry more test-surface risk than is sensible inside a stable-bound beta.
+
 ## [1.5.3-beta.13] - 2026-05-25
 
 ### Fixed

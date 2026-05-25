@@ -544,59 +544,84 @@ class _HubNetworkBinarySensor(CoordinatorEntity[AjaxCobrandedCoordinator], Binar
         return self._hub_id in self.coordinator.hub_network
 
 
-class AjaxHubEthernetSensor(_HubNetworkBinarySensor):
-    """Hub ethernet link status."""
+@dataclass(frozen=True)
+class _HubBinSpec:
+    """Describes one hub-network binary sensor.
 
-    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-    _attr_translation_key = "ethernet"
+    `translation_key` doubles as the unique_id suffix (per
+    `aegis_ajax_{hub_id}_{translation_key}`). `require_hts_alive`
+    means the entity reports `unavailable` when HTS is disconnected
+    instead of returning the cached last-known state — see #146 for
+    why mains_power needs that and the connectivity sensors don't.
+    """
 
-    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
+    translation_key: str
+    state_attr: str
+    device_class: BinarySensorDeviceClass
+    require_hts_alive: bool = False
+
+
+_HUB_BIN_SPECS_BY_KEY: dict[str, _HubBinSpec] = {
+    "ethernet": _HubBinSpec(
+        translation_key="ethernet",
+        state_attr="ethernet_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    ),
+    "wifi": _HubBinSpec(
+        translation_key="wifi",
+        state_attr="wifi_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    ),
+    "mains_power": _HubBinSpec(
+        translation_key="mains_power",
+        state_attr="externally_powered",
+        device_class=BinarySensorDeviceClass.PLUG,
+        require_hts_alive=True,
+    ),
+}
+
+
+class AjaxHubNetworkBinarySensor(_HubNetworkBinarySensor):
+    """Generic descriptor-driven hub-network binary sensor."""
+
+    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str, spec_key: str) -> None:
         super().__init__(coordinator, hub_id)
-        self._attr_unique_id = f"aegis_ajax_{hub_id}_ethernet"
-
-    @property
-    def is_on(self) -> bool:
-        state = self.coordinator.hub_network.get(self._hub_id)
-        return state.ethernet_connected if state else False
-
-
-class AjaxHubWifiSensor(_HubNetworkBinarySensor):
-    """Hub Wi-Fi link status."""
-
-    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-    _attr_translation_key = "wifi"
-
-    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
-        super().__init__(coordinator, hub_id)
-        self._attr_unique_id = f"aegis_ajax_{hub_id}_wifi"
-
-    @property
-    def is_on(self) -> bool:
-        state = self.coordinator.hub_network.get(self._hub_id)
-        return state.wifi_connected if state else False
-
-
-class AjaxHubPowerSensor(_HubNetworkBinarySensor):
-    """Hub mains power status."""
-
-    _attr_device_class = BinarySensorDeviceClass.PLUG
-    _attr_translation_key = "mains_power"
-
-    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
-        super().__init__(coordinator, hub_id)
-        self._attr_unique_id = f"aegis_ajax_{hub_id}_mains_power"
+        spec = _HUB_BIN_SPECS_BY_KEY[spec_key]
+        self._spec = spec
+        self._attr_device_class = spec.device_class
+        self._attr_translation_key = spec.translation_key
+        self._attr_unique_id = f"aegis_ajax_{hub_id}_{spec.translation_key}"
 
     @property
     def available(self) -> bool:
-        # Operational alert (#146): refusing to fall back to a cached
-        # snapshot here is deliberate. If HTS drops and the hub actually
-        # lost mains during the outage, we don't want this sensor still
-        # reporting `on` from the last delta — that would silence "se fue
-        # la luz" automations. Diagnostic hub_network sensors (IP, SSID,
-        # signal level) DO keep their cached value through the outage.
-        return super().available and self.coordinator.is_hts_alive
+        base = super().available
+        if self._spec.require_hts_alive:
+            # #146: don't keep reporting cached "on" through an HTS outage
+            # for sensors whose stale value could silence an automation.
+            return base and self.coordinator.is_hts_alive
+        return base
 
     @property
     def is_on(self) -> bool:
         state = self.coordinator.hub_network.get(self._hub_id)
-        return state.externally_powered if state else False
+        if state is None:
+            return False
+        return bool(getattr(state, self._spec.state_attr, False))
+
+
+# Backwards-compatible aliases — async_setup_entry and tests instantiate
+# these by name and stored entity unique_ids depend on the constructor
+# wiring up the right spec.
+class AjaxHubEthernetSensor(AjaxHubNetworkBinarySensor):
+    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
+        super().__init__(coordinator, hub_id, "ethernet")
+
+
+class AjaxHubWifiSensor(AjaxHubNetworkBinarySensor):
+    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
+        super().__init__(coordinator, hub_id, "wifi")
+
+
+class AjaxHubPowerSensor(AjaxHubNetworkBinarySensor):
+    def __init__(self, coordinator: AjaxCobrandedCoordinator, hub_id: str) -> None:
+        super().__init__(coordinator, hub_id, "mains_power")

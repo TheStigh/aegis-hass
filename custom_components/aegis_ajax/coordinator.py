@@ -235,203 +235,17 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            # Login if not authenticated
-            if not self._client.session.is_authenticated:
-                try:
-                    await self._login_and_persist()
-                    # Restore normal interval after successful re-auth
-                    configured = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, self._poll_interval))
-                    self.update_interval = timedelta(seconds=configured)
-                except AuthenticationError as err:
-                    # Slow down retries to prevent account lockout
-                    self.update_interval = timedelta(minutes=30)
-                    _LOGGER.error(
-                        "Authentication failed: %s — triggering reauth.",
-                        err,
-                    )
-                    # Raise ConfigEntryAuthFailed so HA surfaces the reauth
-                    # banner ("Reconfigure"); UpdateFailed only logs.
-                    raise ConfigEntryAuthFailed(str(err)) from err
-
-            # Refresh spaces — if the saved token is stale Ajax replies with
-            # UNAUTHENTICATED; force a fresh login (and persist the new token)
-            # then retry once. Without this recovery the integration would
-            # raise UpdateFailed and the next restart would re-login again,
-            # piling up active sessions in the user's Ajax account.
-            try:
-                all_spaces = await self._spaces_api.list_spaces()
-            except Exception as exc:  # noqa: BLE001
-                if not self._is_unauthenticated_error(exc):
-                    raise
-                _LOGGER.warning(
-                    "Stored Ajax session was rejected (UNAUTHENTICATED). "
-                    "Forcing a fresh login and retrying."
-                )
-                self._client.session.clear_session()
-                try:
-                    await self._login_and_persist()
-                except AuthenticationError as auth_err:
-                    raise ConfigEntryAuthFailed(str(auth_err)) from auth_err
-                all_spaces = await self._spaces_api.list_spaces()
+            await self._ensure_authenticated()
+            self.spaces = await self._refresh_spaces()
             now = asyncio.get_running_loop().time()
-            new_spaces: dict[str, Space] = {}
-            for s in all_spaces:
-                if s.id not in self._space_ids:
-                    continue
-                # Preserve optimistic security_state if it hasn't expired
-                opt = self._optimistic_space_states.get(s.id)
-                if opt and opt[0] > now and s.security_state != opt[1]:
-                    from dataclasses import replace as dc_replace  # noqa: PLC0415
-
-                    s = dc_replace(s, security_state=opt[1])
-                elif opt and opt[0] <= now:
-                    self._optimistic_space_states.pop(s.id, None)
-                previous = self.spaces.get(s.id)
-                if previous:
-                    from dataclasses import replace as dc_replace  # noqa: PLC0415
-
-                    if previous.monitoring_companies or previous.monitoring_companies_loaded:
-                        s = dc_replace(
-                            s,
-                            monitoring_companies=previous.monitoring_companies,
-                            monitoring_companies_loaded=previous.monitoring_companies_loaded,
-                        )
-                    # Preserve group definitions + group_mode flag across polls.
-                    # `list_spaces()` does not return them — only the hourly
-                    # snapshot path does. Without this, every poll between
-                    # snapshot refreshes wipes the cached groups and per-group
-                    # alarm panels go unavailable.
-                    if previous.groups or previous.group_mode_enabled:
-                        s = dc_replace(
-                            s,
-                            groups=previous.groups,
-                            group_mode_enabled=previous.group_mode_enabled,
-                        )
-                new_spaces[s.id] = s
-            self.spaces = new_spaces
             self._update_hub_offline_repairs(now)
-
-            # Fetch SIM info and pending firmware update for each hub.
-            # Both come from the same `streamHubObject` snapshot, so we
-            # piggyback firmware on the SIM refresh cadence (once per
-            # hour). The firmware fetch always re-runs because a pending
-            # update can be cleared between cycles, unlike SIM info
-            # which we cache once.
-            sim_refresh_interval = 3600.0
-            if now - self._sim_info_last_fetch > sim_refresh_interval:
-                for space in self.spaces.values():
-                    if not space.hub_id:
-                        continue
-                    if space.hub_id not in self.sim_info:
-                        sim = await self._hub_object_api.get_sim_info(space.hub_id)
-                        if sim:
-                            self.sim_info[space.hub_id] = sim
-                    fw = await self._hub_object_api.get_firmware_info(space.hub_id)
-                    if fw is None:
-                        self.hub_firmware_updates.pop(space.hub_id, None)
-                    else:
-                        self.hub_firmware_updates[space.hub_id] = fw
-                self._sim_info_last_fetch = now
-
-            # Fetch rooms for each space (cached, refresh once per hour). Used
-            # to set `suggested_area` on device entries so HA can auto-assign
-            # devices to areas matching their Ajax rooms.
-            rooms_refresh_interval = 3600.0
-            if (
-                self._rooms_last_fetch is None
-                or now - self._rooms_last_fetch > rooms_refresh_interval
-            ):
-                from dataclasses import replace as dc_replace  # noqa: PLC0415
-
-                refreshed_rooms: dict[str, Room] = {}
-                for space_id in self.spaces:
-                    try:
-                        snapshot = await self._spaces_api.get_space_snapshot(space_id)
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.debug("Failed to fetch rooms for space %s", space_id, exc_info=True)
-                        continue
-                    for room in snapshot.rooms:
-                        refreshed_rooms[room.id] = room
-                    current_space = self.spaces.get(space_id)
-                    if current_space is not None:
-                        self.spaces[space_id] = dc_replace(
-                            current_space,
-                            monitoring_companies=snapshot.monitoring_companies,
-                            monitoring_companies_loaded=snapshot.monitoring_companies_loaded,
-                            groups=snapshot.groups,
-                            group_mode_enabled=snapshot.group_mode_enabled,
-                        )
-                self.rooms = refreshed_rooms
-                self._rooms_last_fetch = now
-
-            # Start persistent device streams on first update (once only)
+            await self._maybe_refresh_sim_and_firmware(now)
+            await self._maybe_refresh_rooms(now)
             if not self._streams_started:
-                self._streams_started = True
-                # Try to skip the synchronous `get_devices_snapshot` call
-                # by warming `self.devices` from the persisted cache (#114).
-                # Streams (started below) deliver a fresh snapshot via
-                # `_handle_devices_snapshot` within seconds, replacing the
-                # cached values. On a fresh install or after a corrupt
-                # cache, fall back to the heavy path so platforms still
-                # see real data when they create entities.
-                cached_devices: dict[str, Device] | None = None
-                if self._devices_cache is not None:
-                    try:
-                        cached_devices = await self._devices_cache.async_load()
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.debug("Failed to load devices cache", exc_info=True)
-                if cached_devices:
-                    self.devices = cached_devices
-                else:
-                    # Fetch initial device snapshot synchronously so entities
-                    # are created with real data (avoids unavailable on reload)
-                    initial_devices: dict[str, Device] = {}
-                    for space_id in self.spaces:
-                        space_devices = await self._devices_api.get_devices_snapshot(space_id)
-                        for device in space_devices:
-                            initial_devices[device.id] = device
-                    self.devices = initial_devices
-                    if self._devices_cache is not None and self.devices:
-                        try:
-                            await self._devices_cache.async_save(self.devices)
-                        except Exception:  # noqa: BLE001
-                            _LOGGER.debug("Failed to persist devices cache", exc_info=True)
-                # Then start persistent streams for real-time updates
-                await self._start_device_streams()
-                # Start HTS for hub network data (non-blocking, graceful degradation)
-                await self._start_hts()
-                self._last_update_success_time = dt_util.utcnow()
-                # One-line INFO summary so users debugging "HTS streams: 0/1" or
-                # "FCM clients: 0/1" reports (#111) can see at a glance which
-                # surfaces are coming up at startup. The HTS path is async —
-                # `_start_hts` schedules the lifecycle task and returns, so we
-                # report whether the task was scheduled here, not whether
-                # `connect()` already succeeded. The actual `HTS connected, N
-                # hub(s)` line lands once the task's connect awaits returns.
-                _LOGGER.info(
-                    "Aegis startup: device streams %d/%d started, HTS lifecycle %s",
-                    len([t for t in self._stream_tasks if not t.done()]),
-                    len(self.spaces),
-                    "scheduled" if self._hts_task is not None else "skipped",
-                )
+                await self._first_startup_init()
                 return {"spaces": self.spaces, "devices": self.devices}
-
-            # Skip device snapshot if all persistent streams are alive
-            streams_healthy = self._stream_tasks and all(not t.done() for t in self._stream_tasks)
-            if not streams_healthy:
-                # Fallback poll: refresh devices from snapshot for each space
-                all_devices: dict[str, Device] = {}
-                for space_id in self.spaces:
-                    space_devices = await self._devices_api.get_devices_snapshot(space_id)
-                    for device in space_devices:
-                        all_devices[device.id] = device
-                self.devices = all_devices
-
-            if self._hts_task and self._hts_task.done():
-                self._handle_hts_disconnect()
-            if self._hts_client is None:
-                await self._start_hts()
-
+            await self._maybe_fallback_device_snapshot()
+            await self._maybe_restart_hts()
             self._last_update_success_time = dt_util.utcnow()
             return {"spaces": self.spaces, "devices": self.devices}
         except ConfigEntryAuthFailed:
@@ -460,6 +274,209 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed("Ajax gRPC call was cancelled mid-flight") from None
         except Exception as err:
             raise UpdateFailed("Error fetching Ajax data") from err
+
+    # ------------------------------------------------------------------
+    # _async_update_data sub-steps (extracted from a 227-line god method)
+    # ------------------------------------------------------------------
+
+    async def _ensure_authenticated(self) -> None:
+        """Re-login when the session lost its token. Restore the normal
+        poll interval after a successful re-auth, slow it down to 30 min
+        and raise `ConfigEntryAuthFailed` (surfaces the HA "Reconfigure"
+        banner) when credentials are no longer accepted.
+        """
+        if self._client.session.is_authenticated:
+            return
+        try:
+            await self._login_and_persist()
+        except AuthenticationError as err:
+            self.update_interval = timedelta(minutes=30)
+            _LOGGER.error("Authentication failed: %s — triggering reauth.", err)
+            raise ConfigEntryAuthFailed(str(err)) from err
+        configured = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, self._poll_interval))
+        self.update_interval = timedelta(seconds=configured)
+
+    async def _refresh_spaces(self) -> dict[str, Space]:
+        """List spaces, recover once from a stale-token `UNAUTHENTICATED`,
+        and merge in optimistic state + previously-cached groups /
+        monitoring_companies so the lighter `list_spaces` poll doesn't
+        wipe data that only the hourly snapshot path delivers.
+        """
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        try:
+            all_spaces = await self._spaces_api.list_spaces()
+        except Exception as exc:  # noqa: BLE001
+            if not self._is_unauthenticated_error(exc):
+                raise
+            _LOGGER.warning(
+                "Stored Ajax session was rejected (UNAUTHENTICATED). "
+                "Forcing a fresh login and retrying."
+            )
+            self._client.session.clear_session()
+            try:
+                await self._login_and_persist()
+            except AuthenticationError as auth_err:
+                raise ConfigEntryAuthFailed(str(auth_err)) from auth_err
+            all_spaces = await self._spaces_api.list_spaces()
+
+        now = asyncio.get_running_loop().time()
+        new_spaces: dict[str, Space] = {}
+        for s in all_spaces:
+            if s.id not in self._space_ids:
+                continue
+            opt = self._optimistic_space_states.get(s.id)
+            if opt and opt[0] > now and s.security_state != opt[1]:
+                s = dc_replace(s, security_state=opt[1])
+            elif opt and opt[0] <= now:
+                self._optimistic_space_states.pop(s.id, None)
+            previous = self.spaces.get(s.id)
+            if previous:
+                if previous.monitoring_companies or previous.monitoring_companies_loaded:
+                    s = dc_replace(
+                        s,
+                        monitoring_companies=previous.monitoring_companies,
+                        monitoring_companies_loaded=previous.monitoring_companies_loaded,
+                    )
+                # Group definitions + group_mode_enabled only come from the
+                # hourly snapshot path; without preservation across plain
+                # `list_spaces` polls, per-group alarm panels go
+                # `unavailable` for the rest of the hour.
+                if previous.groups or previous.group_mode_enabled:
+                    s = dc_replace(
+                        s,
+                        groups=previous.groups,
+                        group_mode_enabled=previous.group_mode_enabled,
+                    )
+            new_spaces[s.id] = s
+        return new_spaces
+
+    async def _maybe_refresh_sim_and_firmware(self, now: float) -> None:
+        """Cached once-per-hour fetch of SIM info + pending firmware update
+        per hub. Both ride the same `streamHubObject` snapshot so they share
+        cadence. Firmware always re-runs because a pending update can be
+        cleared between cycles (Ajax-scheduled installs); SIM info is
+        cached after the first successful fetch per hub.
+        """
+        sim_refresh_interval = 3600.0
+        if now - self._sim_info_last_fetch <= sim_refresh_interval:
+            return
+        for space in self.spaces.values():
+            if not space.hub_id:
+                continue
+            if space.hub_id not in self.sim_info:
+                sim = await self._hub_object_api.get_sim_info(space.hub_id)
+                if sim:
+                    self.sim_info[space.hub_id] = sim
+            fw = await self._hub_object_api.get_firmware_info(space.hub_id)
+            if fw is None:
+                self.hub_firmware_updates.pop(space.hub_id, None)
+            else:
+                self.hub_firmware_updates[space.hub_id] = fw
+        self._sim_info_last_fetch = now
+
+    async def _maybe_refresh_rooms(self, now: float) -> None:
+        """Cached once-per-hour room + monitoring_companies + groups refresh
+        via the heavier `get_space_snapshot`. Drives `suggested_area` on
+        device entries (HA auto-area assignment) and refreshes the group
+        + CRA-company snapshot that `list_spaces` doesn't return.
+        """
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        rooms_refresh_interval = 3600.0
+        if (
+            self._rooms_last_fetch is not None
+            and now - self._rooms_last_fetch <= rooms_refresh_interval
+        ):
+            return
+        refreshed_rooms: dict[str, Room] = {}
+        for space_id in self.spaces:
+            try:
+                snapshot = await self._spaces_api.get_space_snapshot(space_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to fetch rooms for space %s", space_id, exc_info=True)
+                continue
+            for room in snapshot.rooms:
+                refreshed_rooms[room.id] = room
+            current_space = self.spaces.get(space_id)
+            if current_space is not None:
+                self.spaces[space_id] = dc_replace(
+                    current_space,
+                    monitoring_companies=snapshot.monitoring_companies,
+                    monitoring_companies_loaded=snapshot.monitoring_companies_loaded,
+                    groups=snapshot.groups,
+                    group_mode_enabled=snapshot.group_mode_enabled,
+                )
+        self.rooms = refreshed_rooms
+        self._rooms_last_fetch = now
+
+    async def _first_startup_init(self) -> None:
+        """First-cycle bootstrap: warm devices cache, start persistent
+        streams + HTS lifecycle, log a one-line startup summary.
+
+        Warming the device cache (#114) lets entities materialise with
+        real data on reload instead of `unavailable` while the streams
+        connect. Streams deliver a fresh snapshot via
+        `_handle_devices_snapshot` within seconds and overwrite cached
+        values.
+        """
+        self._streams_started = True
+        cached_devices: dict[str, Device] | None = None
+        if self._devices_cache is not None:
+            try:
+                cached_devices = await self._devices_cache.async_load()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to load devices cache", exc_info=True)
+        if cached_devices:
+            self.devices = cached_devices
+        else:
+            initial_devices: dict[str, Device] = {}
+            for space_id in self.spaces:
+                space_devices = await self._devices_api.get_devices_snapshot(space_id)
+                for device in space_devices:
+                    initial_devices[device.id] = device
+            self.devices = initial_devices
+            if self._devices_cache is not None and self.devices:
+                try:
+                    await self._devices_cache.async_save(self.devices)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("Failed to persist devices cache", exc_info=True)
+        await self._start_device_streams()
+        await self._start_hts()
+        self._last_update_success_time = dt_util.utcnow()
+        # One-line summary so users debugging "HTS streams: 0/1" or
+        # "FCM clients: 0/1" reports (#111) can see at a glance which
+        # surfaces are coming up. HTS is async — `_start_hts` schedules
+        # the lifecycle task and returns; the "HTS connected" line
+        # appears once the task's connect awaits complete.
+        _LOGGER.info(
+            "Aegis startup: device streams %d/%d started, HTS lifecycle %s",
+            len([t for t in self._stream_tasks if not t.done()]),
+            len(self.spaces),
+            "scheduled" if self._hts_task is not None else "skipped",
+        )
+
+    async def _maybe_fallback_device_snapshot(self) -> None:
+        """Refresh devices from snapshot when persistent streams aren't all
+        alive. Healthy streams (the common case) make this a no-op so
+        normal cycles stay cheap.
+        """
+        streams_healthy = self._stream_tasks and all(not t.done() for t in self._stream_tasks)
+        if streams_healthy:
+            return
+        all_devices: dict[str, Device] = {}
+        for space_id in self.spaces:
+            space_devices = await self._devices_api.get_devices_snapshot(space_id)
+            for device in space_devices:
+                all_devices[device.id] = device
+        self.devices = all_devices
+
+    async def _maybe_restart_hts(self) -> None:
+        """Reap a dead HTS task and re-start the client on the next cycle."""
+        if self._hts_task and self._hts_task.done():
+            self._handle_hts_disconnect()
+        if self._hts_client is None:
+            await self._start_hts()
 
     async def _start_hts(self) -> None:
         """Start HTS in the background — never block the caller.

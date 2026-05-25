@@ -237,17 +237,23 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmControlPanelEntity):
+class _AjaxAlarmPanelBase(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmControlPanelEntity):
+    """Shared base for the space-level and per-group alarm panels.
+
+    Holds the parts that are identical across both: PIN-code option
+    plumbing, code validation, `_force_arm` flag, hub `device_info` setup,
+    `_translate_error` machinery, and the malfunction-aware
+    `_arm_error` helper. Subclasses override the small surface that
+    differs — `available`, `alarm_state`, `extra_state_attributes`,
+    the actual `async_alarm_*` methods (each calls a different API),
+    and `_optimistic_state_update` (space vs group).
+    """
+
     _attr_has_entity_name = True
-    _attr_name = None
-    _attr_supported_features = (
-        AlarmControlPanelEntityFeature.ARM_AWAY | AlarmControlPanelEntityFeature.ARM_NIGHT
-    )
 
     def __init__(self, coordinator: AjaxCobrandedCoordinator, space_id: str) -> None:
         super().__init__(coordinator)
         self._space_id = space_id
-        self._attr_unique_id = f"aegis_ajax_alarm_{space_id}"
         space = coordinator.spaces.get(space_id)
         hub_id = space.hub_id if space else space_id
         hub_device = coordinator.devices.get(hub_id)
@@ -261,8 +267,11 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
                 model="Hub",
             )
 
+    @property
+    def _space(self) -> Space | None:
+        return self.coordinator.spaces.get(self._space_id)
+
     def _get_options(self) -> dict[str, Any]:
-        """Return config entry options, or empty dict if entry is unavailable."""
         entry = self.coordinator.config_entry
         if entry is None:
             return {}
@@ -272,6 +281,10 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
     def code_arm_required(self) -> bool:
         return bool(self._get_options().get("use_pin_code", False))
 
+    @property
+    def _force_arm(self) -> bool:
+        return bool(self._get_options().get(CONF_FORCE_ARM, False))
+
     def _validate_code(self, code: str | None) -> None:
         """Raise HomeAssistantError if the provided code does not match the stored hash."""
         if not self.code_arm_required:
@@ -280,38 +293,6 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
         computed = hashlib.sha256(code.encode()).hexdigest() if code else ""
         if not code or not hmac.compare_digest(computed, stored_hash):
             raise HomeAssistantError(self._translate_error("invalid_alarm_code"))
-
-    @property
-    def _space(self) -> Space | None:
-        return self.coordinator.spaces.get(self._space_id)
-
-    @property
-    def available(self) -> bool:
-        space = self._space
-        return space is not None and space.is_online
-
-    @property
-    def alarm_state(self) -> AlarmControlPanelState | None:
-        space = self._space
-        if space is None:
-            return None
-        return map_security_state(space.security_state)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        space = self._space
-        if space is None:
-            return {}
-        return {
-            "hub_id": space.hub_id,
-            "malfunctions": space.malfunctions_count,
-            "connection_status": space.connection_status.name,
-        }
-
-    @property
-    def _force_arm(self) -> bool:
-        """Return True when the user opted to always ignore malfunctions."""
-        return bool(self._get_options().get(CONF_FORCE_ARM, False))
 
     def _issue_label(self, key: str) -> str:
         """Return a translated issue label for the current HA language."""
@@ -353,6 +334,40 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
                 msg = f"{msg} — {details}"
         return HomeAssistantError(msg)
 
+
+class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
+    _attr_name = None
+    _attr_supported_features = (
+        AlarmControlPanelEntityFeature.ARM_AWAY | AlarmControlPanelEntityFeature.ARM_NIGHT
+    )
+
+    def __init__(self, coordinator: AjaxCobrandedCoordinator, space_id: str) -> None:
+        super().__init__(coordinator, space_id)
+        self._attr_unique_id = f"aegis_ajax_alarm_{space_id}"
+
+    @property
+    def available(self) -> bool:
+        space = self._space
+        return space is not None and space.is_online
+
+    @property
+    def alarm_state(self) -> AlarmControlPanelState | None:
+        space = self._space
+        if space is None:
+            return None
+        return map_security_state(space.security_state)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        space = self._space
+        if space is None:
+            return {}
+        return {
+            "hub_id": space.hub_id,
+            "malfunctions": space.malfunctions_count,
+            "connection_status": space.connection_status.name,
+        }
+
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         self._validate_code(code)
         from custom_components.aegis_ajax.api.security import SecurityError  # noqa: PLC0415
@@ -391,9 +406,9 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
     def _optimistic_state_update(self, new_state: SecurityState) -> None:
         """Update the space state optimistically so the UI reflects the change immediately.
 
-        This avoids flicker when the server or stream returns stale state briefly
-        after a successful arm/disarm command. The optimistic state is preserved
-        for 10 seconds to survive async_refresh calls that may return stale data.
+        Avoids flicker when the server or stream returns stale state briefly
+        after a successful arm/disarm command. The optimistic state is held
+        for 10 seconds so subsequent stale polls don't overwrite it.
         """
         import asyncio  # noqa: PLC0415
         from dataclasses import replace  # noqa: PLC0415
@@ -405,17 +420,13 @@ class AjaxAlarmControlPanel(CoordinatorEntity[AjaxCobrandedCoordinator], AlarmCo
             self.coordinator.spaces[self._space_id] = replace(space, security_state=new_state)
         except TypeError:
             return  # space is not a real dataclass (e.g., during tests)
-        # Protect the optimistic state from being overwritten by stale server data
         expiry = asyncio.get_running_loop().time() + 10
         self.coordinator._optimistic_space_states[self._space_id] = (expiry, new_state)
-        # Notify HA of the state change (may not have hass during tests)
         if self.hass is not None:
             self.async_write_ha_state()
 
 
-class AjaxGroupAlarmControlPanel(
-    CoordinatorEntity[AjaxCobrandedCoordinator], AlarmControlPanelEntity
-):
+class AjaxGroupAlarmControlPanel(_AjaxAlarmPanelBase):
     """Alarm control panel for a single Ajax security group.
 
     Created per `Group` when the parent space is in Group/Zone mode. Calls
@@ -425,52 +436,15 @@ class AjaxGroupAlarmControlPanel(
     surfacing it per group would mislead users about scope.
     """
 
-    _attr_has_entity_name = True
     _attr_supported_features = AlarmControlPanelEntityFeature.ARM_AWAY
 
     def __init__(self, coordinator: AjaxCobrandedCoordinator, space_id: str, group_id: str) -> None:
-        super().__init__(coordinator)
-        self._space_id = space_id
+        super().__init__(coordinator, space_id)
         self._group_id = group_id
         self._attr_unique_id = f"aegis_ajax_alarm_{space_id}_group_{group_id}"
         space = coordinator.spaces.get(space_id)
         group = space.get_group(group_id) if space else None
         self._attr_name = group.name if group else f"Group {group_id}"
-        hub_id = space.hub_id if space else space_id
-        hub_device = coordinator.devices.get(hub_id)
-        if hub_device:
-            self._attr_device_info = build_device_info(hub_device, coordinator.rooms)
-        else:
-            self._attr_device_info = DeviceInfo(
-                identifiers={(DOMAIN, hub_id)},
-                name=space.name if space else "Ajax Hub",
-                manufacturer=MANUFACTURER,
-                model="Hub",
-            )
-
-    def _get_options(self) -> dict[str, Any]:
-        entry = self.coordinator.config_entry
-        return dict(entry.options) if entry is not None else {}
-
-    @property
-    def code_arm_required(self) -> bool:
-        return bool(self._get_options().get("use_pin_code", False))
-
-    def _validate_code(self, code: str | None) -> None:
-        if not self.code_arm_required:
-            return
-        stored_hash = self._get_options().get("pin_code_hash", "")
-        computed = hashlib.sha256(code.encode()).hexdigest() if code else ""
-        if not code or not hmac.compare_digest(computed, stored_hash):
-            raise HomeAssistantError("Invalid alarm code")
-
-    @property
-    def _force_arm(self) -> bool:
-        return bool(self._get_options().get(CONF_FORCE_ARM, False))
-
-    @property
-    def _space(self) -> Space | None:
-        return self.coordinator.spaces.get(self._space_id)
 
     @property
     def _group(self) -> Group | None:
@@ -512,7 +486,7 @@ class AjaxGroupAlarmControlPanel(
                 self._space_id, self._group_id, ignore_alarms=self._force_arm
             )
         except SecurityError as err:
-            raise HomeAssistantError(str(err)) from err
+            raise self._arm_error(err) from err
         self._optimistic_state_update(SecurityState.ARMED)
         await self.coordinator.async_request_refresh()
 
@@ -523,7 +497,7 @@ class AjaxGroupAlarmControlPanel(
         try:
             await self.coordinator.security_api.disarm_group(self._space_id, self._group_id)
         except SecurityError as err:
-            raise HomeAssistantError(str(err)) from err
+            raise HomeAssistantError(self._translate_error(str(err))) from err
         self._optimistic_state_update(SecurityState.DISARMED)
         await self.coordinator.async_request_refresh()
 
