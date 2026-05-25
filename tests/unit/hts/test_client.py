@@ -1069,3 +1069,69 @@ class TestPingLoop:
 
         assert client._connected is False
         client._send_message.assert_awaited_once_with(MsgType.PING, b"")
+
+
+class TestStatusRefreshLoop:
+    @pytest.mark.asyncio
+    async def test_status_refresh_loop_calls_send_request_full_status_per_hub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "custom_components.aegis_ajax.api.hts.client.STATUS_REFRESH_INTERVAL",
+            0,
+        )
+        from custom_components.aegis_ajax.api.hts.auth import HubInfo
+
+        client = _make_client()
+        client._hubs = [
+            HubInfo(hub_id="001C940E", is_master=True),
+            HubInfo(hub_id="00B1A532", is_master=False),
+        ]
+        client._connected = True
+
+        async def fake_send(hub_id: str) -> None:
+            # Disconnect after the first cycle so the loop exits.
+            client._connected = False
+
+        client._send_request_full_status = AsyncMock(side_effect=fake_send)  # type: ignore[method-assign]
+
+        await client._status_refresh_loop()
+
+        assert client._send_request_full_status.await_count == 2
+        hub_ids_called = {call.args[0] for call in client._send_request_full_status.await_args_list}
+        assert hub_ids_called == {"001C940E", "00B1A532"}
+
+    @pytest.mark.asyncio
+    async def test_status_refresh_loop_keeps_going_on_per_hub_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # One hub raising on send must not break the loop for the other hub
+        # nor terminate the periodic refresh — next cycle should still fire.
+        monkeypatch.setattr(
+            "custom_components.aegis_ajax.api.hts.client.STATUS_REFRESH_INTERVAL",
+            0,
+        )
+        from custom_components.aegis_ajax.api.hts.auth import HubInfo
+
+        client = _make_client()
+        client._hubs = [
+            HubInfo(hub_id="BROKEN01", is_master=True),
+            HubInfo(hub_id="WORKING1", is_master=False),
+        ]
+        client._connected = True
+        call_count = 0
+
+        async def fake_send(hub_id: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            if hub_id == "BROKEN01":
+                raise OSError("hub unreachable")
+            if call_count >= 2:
+                client._connected = False  # exit after first full cycle
+
+        client._send_request_full_status = AsyncMock(side_effect=fake_send)  # type: ignore[method-assign]
+
+        await client._status_refresh_loop()
+
+        # Both hubs called in cycle 1 — broken one didn't abort the cycle.
+        assert client._send_request_full_status.await_count == 2

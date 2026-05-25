@@ -51,6 +51,14 @@ _LOGGER = logging.getLogger(__name__)
 HTS_HOST = "hts.prod.ajax.systems"
 HTS_PORT = 443
 PING_INTERVAL = 30
+# Periodic STATUS_BODY refresh cadence (#179 follow-up). Outlet Type E /
+# F firmwares emit per-device STATUS_UPDATE deltas extremely sparsely —
+# a 6-hour user capture under varying load saw exactly one push — so
+# without an explicit refresh, electrical sensors stay frozen at
+# whatever the boot snapshot delivered. WallSwitch family pushes on
+# every load transition and is unaffected here but benefits from a
+# periodic re-sync as well. Cost per cycle: ~2.7 KB per hub.
+STATUS_REFRESH_INTERVAL = 60
 READ_TIMEOUT = 40
 # Bound the full 4-step auth handshake. Without this, a server that keeps the
 # TCP connection alive but feeds bytes slowly can keep `_receive_message()`'s
@@ -149,6 +157,7 @@ class HtsClient:
 
         self._ping_task: asyncio.Task[None] | None = None
         self._data_request_task: asyncio.Task[None] | None = None
+        self._status_refresh_task: asyncio.Task[None] | None = None
         self._read_buf = bytearray()
         self._consecutive_read_timeouts = 0
         self._hub_states: dict[str, HubNetworkState] = {}
@@ -529,6 +538,7 @@ class HtsClient:
         self._on_state_update = on_state_update
         self._on_device_kv = on_device_kv
         self._ping_task = asyncio.create_task(self._ping_loop())
+        self._status_refresh_task = asyncio.create_task(self._status_refresh_loop())
 
         # Request hub data immediately (connection is stable now)
         async def _request_data() -> None:
@@ -911,6 +921,34 @@ class HtsClient:
                     self._connected = False
                     break
 
+    async def _status_refresh_loop(self) -> None:
+        """Request a STATUS_BODY refresh per hub every STATUS_REFRESH_INTERVAL seconds.
+
+        The Outlet Type E / F firmware only pushes per-device STATUS_UPDATE
+        deltas extremely sparsely — empirically one push per several hours
+        regardless of load activity (#179). Without an explicit refresh,
+        the integration's `device_readings` cache stays frozen at the
+        boot snapshot for the entire session. WallSwitch family pushes
+        deltas reliably so it's unaffected here, but a periodic re-sync
+        catches the case where a delta is dropped (e.g. ACK lost on the
+        wire) too. Single per-hub `_send_request_full_status` call →
+        ~2.7 KB response carrying every device's STATUS row → existing
+        body-handler path updates each device's readings in place.
+        """
+        while self._connected:
+            await asyncio.sleep(STATUS_REFRESH_INTERVAL)
+            if not self._connected:
+                return
+            for hub in self._hubs:
+                try:
+                    await self._send_request_full_status(hub.hub_id)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Periodic STATUS refresh failed for hub %s; will retry next cycle",
+                        hub.hub_id,
+                        exc_info=True,
+                    )
+
     # ------------------------------------------------------------------
     # Close
     # ------------------------------------------------------------------
@@ -934,6 +972,11 @@ class HtsClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._ping_task
             self._ping_task = None
+        if self._status_refresh_task is not None:
+            self._status_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._status_refresh_task
+            self._status_refresh_task = None
         if self._writer is not None:
             with contextlib.suppress(Exception):
                 self._writer.close()

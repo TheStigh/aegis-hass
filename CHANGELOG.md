@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3-beta.13] - 2026-05-25
+
+### Fixed
+- **Live electrical readings for Outlet Type E / F now refresh on a periodic timer** (#179, confirmed by @SaetanSaDiablo's 6-hour load-change capture on beta.12). The capture pinned down what beta.11 / beta.12 couldn't: the Outlet firmware emits per-device STATUS_UPDATE deltas extremely sparsely — exactly one push across 6 hours of varying load on 5 Outlets — so even with the correct sub-key mapping in place, the integration's `device_readings` cache stays frozen at whatever the boot snapshot delivered. The HTS protocol already supports requesting a fresh STATUS_BODY snapshot from each hub (`_send_request_full_status`, sub-key 7 — used once at startup); the new `_status_refresh_loop` repeats that request every `STATUS_REFRESH_INTERVAL = 60` seconds. Bandwidth is negligible (~2.7 KB per hub per cycle). WallSwitch family pushes deltas reliably on every load transition so they're unaffected, but the periodic re-sync catches any dropped delta as a side benefit. Lesson: HTS-protocol behaviour is asymmetric across device families more than expected — verify before assuming symmetry, but ship the workaround when the asymmetry is empirically confirmed.
+
+### Changed
+- **README's *Where the values live* gains a note on XAPK split-APK structure** (#182 follow-up). When users download via XAPK installer, the native library (`libnative-lib.so`) doesn't live inside the base `com.ajaxsystems.apk` — it ships in one of the architecture-specific config splits (`config.armeabi_v7a.apk` / `config.arm64_v8a.apk`). @zwagerzaken's first extraction looked in the base APK and found nothing; the second extraction (from the matching arch split) found the two `AIza…` candidates and the second one registered successfully. Documented to save the next user a round of extraction confusion.
+
 ## [1.5.3-beta.12] - 2026-05-25
 
 ### Changed
