@@ -2,7 +2,9 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/bvis/aegis-hass.svg)](https://github.com/bvis/aegis-hass/releases)
-[![Tests](https://github.com/bvis/aegis-hass/actions/workflows/ci.yml/badge.svg)](https://github.com/bvis/aegis-hass/actions)
+[![Tests](https://github.com/bvis/aegis-hass/actions/workflows/ci.yml/badge.svg)](https://github.com/bvis/aegis-hass/actions/workflows/ci.yml)
+[![Validate with hassfest](https://github.com/bvis/aegis-hass/actions/workflows/hassfest.yaml/badge.svg)](https://github.com/bvis/aegis-hass/actions/workflows/hassfest.yaml)
+[![HACS Validation](https://github.com/bvis/aegis-hass/actions/workflows/validate.yaml/badge.svg)](https://github.com/bvis/aegis-hass/actions/workflows/validate.yaml)
 [![License: MIT](https://img.shields.io/github/license/bvis/aegis-hass.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -25,7 +27,8 @@ Ajax Systems provides co-branded versions of their mobile app to security compan
 - **Binary Sensors**: Door open/close, motion detection, smoke, steam (FireProtect 2 chamber discriminator), leak, tamper, CO, heat, glass break, vibration, tilt (DoorProtect Plus accelerometer), CRA monitoring status, cellular connection, lid tamper, external contact alert (wired reed switches on DoorProtect/Hub Hybrid inputs), external contact fault, MultiTransmitter wired-input alert with alarm category, anti-masking, interference detection, ethernet link, Wi-Fi link, mains power
 - **Hub Network**: Real-time hub network data — ethernet/wifi/gsm connection status, Wi-Fi SSID and signal strength, IP addressing, cellular signal strength and network type, power supply status
 - **Sensors**: Battery level, temperature, humidity, CO2, signal strength, GSM type (2G/3G/4G), Wi-Fi signal level, Wi-Fi SSID, Wi-Fi IP, IMEI, Ethernet IP/gateway/DNS, cellular signal/network, connection type
-- **Electrical readings** for WallSwitch / Socket family devices: live current draw (A), measured line voltage (V) when the firmware reports it, cumulative electric energy consumed (kWh, wired into HA's Energy dashboard via `state_class=total_increasing`), and derived instantaneous power (W, opt-in, `current × measured voltage` when available — falls back to a nominal 230 V baseline for firmwares that don't expose voltage). Updates arrive on the hub's push channel, so the entities feel live with no client-side polling. The four sensors also persist across HA restarts (so a constant load like a fixed-speed pump doesn't render as `unknown` after a reboot until the next state change).
+- **Electrical readings** for WallSwitch / Socket family devices: live current draw (A), measured line voltage (V) when the firmware reports it, cumulative electric energy consumed (kWh, wired into HA's Energy dashboard via `state_class=total_increasing`), and instantaneous power (W). Power is a direct firmware reading on the Outlet Type E / F family and a derived `current × measured voltage` reading (opt-in, with a 230 V nominal fallback) on the WallSwitch family. Updates arrive on the hub's push channel; a per-hub 60 s STATUS refresh fills the gap on device families whose firmware emits live deltas sparsely (Outlet Type E / F). The sensors also persist across HA restarts so a constant load like a fixed-speed pump doesn't render as `unknown` after a reboot until the next state change.
+- **Manual hub refresh button**: one `button.<hub>_refresh_hub` per configured hub. Pressing it (or calling `button.press` from an automation) forces an immediate STATUS refresh from the hub — useful after toggling an appliance, when waiting for the next 60 s periodic tick would feel sluggish. Rate-limited to one press per 60 s per hub so a stuck automation can't generate unusual traffic against Ajax's servers.
 - **Switches**: Relays, wall switches, sockets (multi-channel support) — turn on/off via `DeviceCommandDeviceOn` / `DeviceCommandDeviceOff` gRPC services
 - **Lights**: Dimmers with absolute brightness control via `DeviceCommandBrightness`
 - **Locks**: Ajax SmartLock and LockBridge (Yale) — lock, unlock, and unlatch (HA's `lock.open`) via `SwitchSmartLockService`
@@ -155,7 +158,7 @@ You can type any custom label during setup if yours is not listed.
 | Combi | CombiProtect, CombiProtect S, CombiProtect Fibra | Motion, glass break, tamper, battery |
 | Fire/Smoke | FireProtect, FireProtect Plus, FireProtect 2 (all sub-models — heat-only `*hrb`/`*hsb`, CO-only `*crb`/`*csb`, multi-sensor `*hcrb`/`*hcsb`, AC-powered `*_ac`, UL-listed `*_ul`) | Smoke, steam (FireProtect 2 only — chamber discriminator), CO, high temperature, tamper, battery — sub-models without a given sensor expose only the relevant entity |
 | Water Leak | LeaksProtect | Leak detected, tamper, battery |
-| Relays/Switches | Relay, WallSwitch, Socket (and outlet variants) | On/off per channel; electrical readings (current, voltage, energy, derived power) on WallSwitch / Socket family. **Outlet Type E and Type F** currently report on/off only — their electrical sub-key layout differs from the rest of the family and is still being mapped; the four electrical sensors render `unknown` until a calibrated capture lands. |
+| Relays/Switches | Relay, WallSwitch, Socket (and outlet variants) | On/off per channel; electrical readings (current, voltage, energy) across the WallSwitch / Socket family. Power is exposed as a direct reading on the Outlet Type E / F family (the firmware reports it natively) and as a derived `current × voltage` reading on the WallSwitch family. |
 | Light switches | LightSwitch (Jeweller / Fibra) | On/off per channel |
 | Lights | LightSwitch Dimmer | Brightness control |
 | Locks | SmartLock, LockBridge (Yale) | Lock, unlock, unlatch (HA `lock.open` → momentary unlatch). State surfaces locked / unlocked / unlatched |
@@ -403,7 +406,7 @@ Two quick consistency checks that catch the most common "credentials rejected" r
 
 ### If submission still fails
 
-Since `1.5.3-beta.4` the integration also runs the same shape checks above as a **pre-flight** before contacting Google. When something is structurally off (e.g. `fcm_sender_id` doesn't match the digit chunk in `fcm_app_id`), a **Push notifications disabled — FCM credentials malformed** Repair card appears with the specific problem named, and the values aren't sent to Firebase at all. That's faster and clearer than Google's opaque 403.
+Since `1.6.0` the integration also runs the same shape checks above as a **pre-flight** before contacting Google. When something is structurally off (e.g. `fcm_sender_id` doesn't match the digit chunk in `fcm_app_id`), a **Push notifications disabled — FCM credentials malformed** Repair card appears with the specific problem named, and the values aren't sent to Firebase at all. That's faster and clearer than Google's opaque 403.
 
 If the shape checks pass and Google still rejects, the WARNING line under **Settings → System → Logs** names the specific cause (project consistency, app-id format, or network reach to Google's FCM hosts). Re-enter the four values together via the Repair card under **Settings → Repairs** once you have a coherent set.
 
