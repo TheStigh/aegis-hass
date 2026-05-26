@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2-beta.3] - 2026-05-27
+
+Resource-cleanup and correctness fixes from a code-review pass — no user-facing behaviour change in normal operation.
+
+### Fixed
+- **`set_photo_on_demand_mode` service is now removed when the last config entry is unloaded.** `async_unload_entry` only removed three of the four registered domain services, leaving `set_photo_on_demand_mode` (added in #157) registered as an orphan after the integration was fully removed. Registration and teardown now derive from one shared list, so the two can't drift again.
+- **gRPC channels no longer leak on failed setup or failed config-flow login.** If the coordinator's first refresh raised (e.g. a transient `ConfigEntryNotReady`), HA retried setup with a fresh client while the previous channel stayed open — one leaked channel per retry. The config-flow login path leaked the same way when a login attempt errored and the user retried (each retry builds a new client). Both paths now close the in-flight client on the error branch. The 2FA step intentionally keeps its channel open because it reuses the same client across code retries.
+- **`CancelledError` during config-flow login is re-raised instead of being surfaced as an "unknown" error**, so a Home Assistant shutdown or reload that cancels the login cancels cleanly, matching the coordinator's cancellation handling.
+
+### Internal
+- **`manifest.json` is now the single source of truth for the release version.** `pyproject.toml`'s copy had silently drifted (`1.2.1` while the manifest was at `1.6.2-beta.2`) across many releases; a new test (`tests/unit/test_version_consistency.py`) fails CI the moment the two diverge.
+
 ## [1.6.2-beta.2] - 2026-05-27
 
 ### Changed
