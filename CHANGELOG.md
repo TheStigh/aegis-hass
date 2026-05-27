@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.1] - 2026-05-27
+
+Doorbell ring and motion now surface on the doorbell device card (#173).
+
+### Added
+- **Per-device doorbell `event` entity.** Video-edge doorbells now get their own `event` entity (`device_class: doorbell`) on the doorbell device card, so a button press shows up where users look — not only on the hub-level event entity. Translated across all 14 locales.
+
+### Fixed
+- **Doorbell motion now turns the motion sensor on.** Video-edge doorbells report motion only over FCM push, never in the gRPC snapshot, so their `motion` binary_sensor stayed `off` forever. A motion push now flips the source device's `motion_detected` status on with a 30-second auto-off, so it behaves like a regular PIR detector. Both the ring and motion are attributed to the source device by the device id carried in the push; ring events fall back to the sole doorbell in the install when no id is present (motion has no fallback — the event type is shared with PIR detectors).
+
+### Internal
+- Added DEBUG instrumentation that logs the resolved device attribution for each doorbell/motion push, plus a PII-redacted hex dump of the payload when a push can't be attributed to a device — so an unexpected source shape is diagnosable from a single debug log without another code round-trip.
+
 ## [1.6.2-beta.5] - 2026-05-27
 
 Internal refactor only — no user-facing behaviour change.
