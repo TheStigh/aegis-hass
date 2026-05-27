@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.2] - 2026-05-28
+
+Device automation triggers and a per-device bypass switch.
+
+### Added
+- **Device automation triggers.** Each Ajax security event (alarm, arm, disarm, night mode, motion, door open, doorbell pressed, fire, flood, CO, glass break, tamper, panic, battery low, connection lost, malfunction) is now a named device trigger on the hub device, selectable in the automation editor instead of hand-writing an event trigger. Translated across all 14 locales.
+- **Per-device bypass switch.** Every non-hub device gets a `bypass` switch (config entity) to deactivate/reactivate it — e.g. exclude a sensor before arming — straight from Home Assistant. State mirrors the device's `bypassed` flag. Permanent ("engineering") deactivation. Translated across all 14 locales.
+
+### Fixed
+- **Doorbell ring no longer double-fires.** The per-device doorbell event entity added in 1.7.0-beta.1 also fired the shared `aegis_ajax_event` bus event that the hub-level entity already fires, producing two logbook entries and double-triggering automations on each press. The doorbell entity now updates its own state only.
+
 ## [1.7.0-beta.1] - 2026-05-27
 
 Doorbell ring and motion now surface on the doorbell device card (#173).
