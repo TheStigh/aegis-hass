@@ -84,7 +84,11 @@
                     "fcm_sender_id": "FCM Sender ID",
                     "photo_retention_days": "Photo retention (days)",
                     "photo_max_per_device": "Max photos per device (0 = unlimited)",
-                    "auto_create_labels": "Auto-create and assign Aegis labels to entities"
+                    "auto_create_labels": "Auto-create and assign Aegis labels to entities",
+                    "bypass_switches": "Create device bypass switches"
+                },
+                "data_description": {
+                    "bypass_switches": "Bypass switches let you deactivate a device before arming. 'Auto' creates them only if your Ajax account has permission to deactivate devices."
                 }
             }
         }
@@ -232,6 +236,27 @@
         },
         "photo_capture_timeout": {
             "message": "Timed out waiting for the camera to deliver the captured photo. Try again, and check the camera is online."
+        },
+        "command_permission_denied": {
+            "message": "Your Ajax account does not have permission to perform this action."
+        },
+        "command_hub_offline": {
+            "message": "The hub is offline, so the command could not be sent."
+        },
+        "command_hub_wrong_state": {
+            "message": "The hub is not in a state that allows this action right now."
+        },
+        "command_alarm_reset_needed": {
+            "message": "An active alarm must be reset before this action can be performed."
+        },
+        "command_not_performed": {
+            "message": "The hub did not carry out the command."
+        },
+        "command_unknown": {
+            "message": "The hub did not recognise the command."
+        },
+        "command_failed": {
+            "message": "The command could not be completed. The hub returned: {reason}."
         }
     },
     "entity": {
@@ -427,6 +452,15 @@
             "motion": "Motion",
             "panic": "Panic",
             "tamper": "Tamper"
+        }
+    },
+    "selector": {
+        "bypass_switches": {
+            "options": {
+                "auto": "Auto (only if your account can deactivate devices)",
+                "always": "Always",
+                "never": "Never"
+            }
         }
     }
 }

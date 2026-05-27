@@ -193,6 +193,20 @@ class DeviceState(StrEnum):
     UNKNOWN = "unknown"
 
 
+# Controls whether per-device bypass switches are created (#bypass).
+# `auto` only creates them if the logged-in user has the DEVICE_EDIT space
+# permission (deactivating a device requires it server-side); `always` and
+# `never` skip the permission check.
+CONF_BYPASS_SWITCHES = "bypass_switches"
+BYPASS_SWITCHES_AUTO = "auto"
+BYPASS_SWITCHES_ALWAYS = "always"
+BYPASS_SWITCHES_NEVER = "never"
+DEFAULT_BYPASS_SWITCHES = BYPASS_SWITCHES_AUTO
+# The SpacePermission the Ajax server requires to deactivate (bypass) a device.
+# Confirmed empirically: an account lacking exactly this permission gets
+# `permission_denied` on the bypass command.
+BYPASS_REQUIRED_PERMISSION = "DEVICE_EDIT"
+
 CONF_FORCE_ARM = "force_arm"
 CONF_PHOTO_RETENTION_DAYS = "photo_retention_days"
 CONF_PHOTO_MAX_PER_DEVICE = "photo_max_per_device"
@@ -473,3 +487,16 @@ DOORBELL_DEVICE_TYPES: frozenset[str] = frozenset(
 DOORBELL_EVENT_TYPE = "doorbell_pressed"
 # HA event_type for motion pushes; used to flip a device's motion sensor (#173).
 MOTION_EVENT_TYPE = "motion"
+
+# Maps a DeviceCommand failure-oneof case (what the hub returned) to a
+# translated `exceptions.*` message key. Unmapped reasons fall back to
+# `command_failed`, which echoes the raw reason. Messages stay factual —
+# they state what the hub reported, without guessing the cause or remedy.
+COMMAND_ERROR_TRANSLATION_KEYS: dict[str, str] = {
+    "permission_denied": "command_permission_denied",
+    "hub_offline": "command_hub_offline",
+    "hub_wrong_state": "command_hub_wrong_state",
+    "alarm_reset_needed": "command_alarm_reset_needed",
+    "command_not_performed": "command_not_performed",
+    "unknown_command": "command_unknown",
+}

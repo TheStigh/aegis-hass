@@ -85,7 +85,11 @@
                     "clear_fcm_credentials": "Eliminar credenciales FCM (borra los cuatro campos)",
                     "photo_retention_days": "Retención de fotos (días)",
                     "photo_max_per_device": "Máximo de fotos por dispositivo (0 = ilimitado)",
-                    "auto_create_labels": "Crear y asignar automáticamente etiquetas Aegis a las entidades"
+                    "auto_create_labels": "Crear y asignar automáticamente etiquetas Aegis a las entidades",
+                    "bypass_switches": "Crear switches de bypass de dispositivos"
+                },
+                "data_description": {
+                    "bypass_switches": "Los switches de bypass permiten desactivar un dispositivo antes de armar. 'Auto' solo los crea si tu cuenta de Ajax tiene permiso para desactivar dispositivos."
                 }
             }
         }
@@ -444,6 +448,27 @@
         },
         "photo_capture_timeout": {
             "message": "Se agotó el tiempo de espera para que la cámara entregara la foto capturada. Inténtalo de nuevo y comprueba que la cámara esté en línea."
+        },
+        "command_permission_denied": {
+            "message": "Tu cuenta de Ajax no tiene permiso para realizar esta acción."
+        },
+        "command_hub_offline": {
+            "message": "El hub está desconectado, así que el comando no se pudo enviar."
+        },
+        "command_hub_wrong_state": {
+            "message": "El hub no está en un estado que permita esta acción ahora mismo."
+        },
+        "command_alarm_reset_needed": {
+            "message": "Hay que resetear una alarma activa antes de realizar esta acción."
+        },
+        "command_not_performed": {
+            "message": "El hub no ejecutó el comando."
+        },
+        "command_unknown": {
+            "message": "El hub no reconoció el comando."
+        },
+        "command_failed": {
+            "message": "No se pudo completar el comando. El hub devolvió: {reason}."
         }
     },
     "device_automation": {
@@ -465,6 +490,15 @@
             "motion": "Movimiento",
             "panic": "Panico",
             "tamper": "Manipulacion"
+        }
+    },
+    "selector": {
+        "bypass_switches": {
+            "options": {
+                "auto": "Auto (solo si tu cuenta puede desactivar dispositivos)",
+                "always": "Siempre",
+                "never": "Nunca"
+            }
         }
     }
 }

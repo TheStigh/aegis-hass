@@ -85,7 +85,11 @@
                     "clear_fcm_credentials": "Supprimer les identifiants FCM (efface les quatre champs)",
                     "photo_retention_days": "Rétention des photos (jours)",
                     "photo_max_per_device": "Max photos par appareil (0 = illimité)",
-                    "auto_create_labels": "Créer et attribuer automatiquement des étiquettes Aegis aux entités"
+                    "auto_create_labels": "Créer et attribuer automatiquement des étiquettes Aegis aux entités",
+                    "bypass_switches": "Créer des interrupteurs de contournement"
+                },
+                "data_description": {
+                    "bypass_switches": "Les interrupteurs de contournement permettent de désactiver un appareil avant l'armement. « Auto » ne les crée que si votre compte Ajax a l'autorisation de désactiver des appareils."
                 }
             }
         }
@@ -428,6 +432,27 @@
         },
         "photo_capture_timeout": {
             "message": "Délai dépassé en attendant que la caméra livre la photo capturée. Réessayez et vérifiez que la caméra est en ligne."
+        },
+        "command_permission_denied": {
+            "message": "Votre compte Ajax n'a pas l'autorisation d'effectuer cette action."
+        },
+        "command_hub_offline": {
+            "message": "Le hub est hors ligne, la commande n'a pas pu être envoyée."
+        },
+        "command_hub_wrong_state": {
+            "message": "Le hub n'est pas dans un état permettant cette action pour le moment."
+        },
+        "command_alarm_reset_needed": {
+            "message": "Une alarme active doit être réinitialisée avant de pouvoir effectuer cette action."
+        },
+        "command_not_performed": {
+            "message": "Le hub n'a pas exécuté la commande."
+        },
+        "command_unknown": {
+            "message": "Le hub n'a pas reconnu la commande."
+        },
+        "command_failed": {
+            "message": "La commande n'a pas pu être terminée. Le hub a renvoyé : {reason}."
         }
     },
     "device_automation": {
@@ -449,6 +474,15 @@
             "motion": "Mouvement",
             "panic": "Panique",
             "tamper": "Sabotage"
+        }
+    },
+    "selector": {
+        "bypass_switches": {
+            "options": {
+                "auto": "Auto (seulement si votre compte peut désactiver des appareils)",
+                "always": "Toujours",
+                "never": "Jamais"
+            }
         }
     }
 }

@@ -85,7 +85,11 @@
                     "clear_fcm_credentials": "Eliminar credenciais FCM (limpa todos os quatro campos)",
                     "photo_retention_days": "Retenção de fotos (dias)",
                     "photo_max_per_device": "Máx. fotos por dispositivo (0 = ilimitado)",
-                    "auto_create_labels": "Criar e atribuir automaticamente etiquetas Aegis às entidades"
+                    "auto_create_labels": "Criar e atribuir automaticamente etiquetas Aegis às entidades",
+                    "bypass_switches": "Criar interruptores de bypass de dispositivos"
+                },
+                "data_description": {
+                    "bypass_switches": "Os interruptores de bypass permitem desativar um dispositivo antes de armar. 'Auto' só os cria se a tua conta Ajax tiver permissão para desativar dispositivos."
                 }
             }
         }
@@ -428,6 +432,27 @@
         },
         "photo_capture_timeout": {
             "message": "Tempo esgotado à espera que a câmara entregasse a foto capturada. Tenta novamente e verifica se a câmara está online."
+        },
+        "command_permission_denied": {
+            "message": "A tua conta Ajax não tem permissão para realizar esta ação."
+        },
+        "command_hub_offline": {
+            "message": "O hub está offline, por isso o comando não pôde ser enviado."
+        },
+        "command_hub_wrong_state": {
+            "message": "O hub não está num estado que permita esta ação neste momento."
+        },
+        "command_alarm_reset_needed": {
+            "message": "É necessário repor um alarme ativo antes de realizar esta ação."
+        },
+        "command_not_performed": {
+            "message": "O hub não executou o comando."
+        },
+        "command_unknown": {
+            "message": "O hub não reconheceu o comando."
+        },
+        "command_failed": {
+            "message": "Não foi possível concluir o comando. O hub devolveu: {reason}."
         }
     },
     "device_automation": {
@@ -449,6 +474,15 @@
             "motion": "Movimento",
             "panic": "Pânico",
             "tamper": "Adulteração"
+        }
+    },
+    "selector": {
+        "bypass_switches": {
+            "options": {
+                "auto": "Auto (apenas se a tua conta puder desativar dispositivos)",
+                "always": "Sempre",
+                "never": "Nunca"
+            }
         }
     }
 }
