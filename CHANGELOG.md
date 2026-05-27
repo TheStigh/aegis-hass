@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2-beta.5] - 2026-05-27
+
+Internal refactor only — no user-facing behaviour change.
+
+### Internal
+- **FCM push event parsers extracted from `notification.py` into a new `notification_event_parser.py`.** The pure base64/protobuf decoders (`extract_notification_id`, `_extract_event_with_compiled_protos`, `_resolve_qualifier`, `_find_embedded_messages`, `_extract_source_info`, `_extract_space_source_info`, `_extract_space_group_info`, `_extract_event_raw`) now live in one side-effect-free module that's testable without a listener, coordinator, or HA instance. `AjaxNotificationListener` keeps thin delegators; `_parse_and_fire_event` still orchestrates them and owns the side effects (firing HA events, applying security state). The parser module pins its logger name to `notification` so DEBUG output is byte-for-byte identical. `notification.py` drops from 943 to ~590 lines. No entity, unique_id, or behaviour change.
+
 ## [1.6.2-beta.4] - 2026-05-27
 
 Internal refactor only — no user-facing behaviour change.
