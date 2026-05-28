@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Graceful handling of device-command permission denials, especially for bypass.
 
 ### Added
-- **`bypass_switches` option (auto / always / never).** Controls whether per-device bypass switches are created. `auto` (default) only creates them if the logged-in user has the `DEVICE_EDIT` Ajax permission — so accounts that can't deactivate devices aren't left with a bypass switch on every device that only ever errors. `always` keeps the previous behaviour; `never` disables them. Configurable in the integration options; translated across all 14 locales.
+- **`bypass_switches` option (auto / always / never).** Controls whether per-device bypass switches are created. `auto` (default) only creates them if the logged-in user has the `DEVICE_EDIT` Ajax permission — so accounts that can't deactivate devices aren't left with a bypass switch on every device that only ever errors. `always` keeps the previous behaviour; `never` disables them. Configurable in the integration options; translated across all 14 locales. Note: if you previously had bypass switches created (1.7.0-beta.2) and `auto`/`never` now skips them, the existing `switch.*_bypass` entities stay in Home Assistant as `unavailable` until removed manually — HA doesn't auto-delete entities a platform stops providing.
 
 ### Fixed
 - **Clear, translated errors when the hub rejects a device command.** A rejection (no permission, hub offline, wrong state, …) now surfaces as a factual `HomeAssistantError` keyed off the server's reason, instead of the raw generic service failure. Applies to switch on/off, device bypass, and light brightness.

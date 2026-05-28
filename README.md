@@ -101,6 +101,7 @@ After setup, configure these in **Settings > Devices & Services > Aegis for Ajax
 | Photo retention (days) | 30 | How many days to keep captured photos (1-365) |
 | Max photos per device | 100 | Maximum photos stored per camera (0 = unlimited) |
 | Auto-create labels | enabled | Create and assign `aegis_*` labels (camera, hub, door, motion, …) to your entities for easy grouping in dashboards/automations. Disable if you prefer to manage labels manually — with the option enabled the integration re-creates the labels on every restart. |
+| Bypass switches | auto | Whether to create a `bypass` switch per device. `auto` only creates them if your Ajax account has the `DEVICE_EDIT` permission (required to deactivate devices); `always` creates them unconditionally; `never` skips them. **Note:** Home Assistant does not auto-remove entities when a platform stops providing them — if switching from `always` (or upgrading from an older version that always created them) to `auto`/`never` on an account that can't deactivate devices, the existing `switch.*_bypass` entries linger as `unavailable` until you delete them manually (Settings → Devices & Services → device → entity → Delete). |
 
 ### Known App Labels
 
