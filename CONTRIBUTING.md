@@ -1,5 +1,7 @@
 # Contributing
 
+Beyond code, the most useful contribution most people can make is **hands-on testing against your own hardware** — running beta releases, sharing diagnostics dumps and debug logs from your install when something the integration doesn't cover, and iterating until it works. If you have a device family, a co-branded app, or a feature that isn't supported (video streaming, WaterStop bidirectional control, an unrecognised device family, a new co-branded app, …), see the [Help Wanted section in the README](README.md#help-wanted) for the areas that need community input and how to get involved.
+
 ## Development Setup
 
 Everything runs in Docker. No local dependencies needed.

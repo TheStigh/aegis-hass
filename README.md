@@ -353,6 +353,20 @@ If a specific group of sensors stops working:
 - [ ] Number/Select platforms for device settings (sensitivity, brightness)
 - [ ] SpaceControl (keyfob) event support
 
+## Help Wanted
+
+This integration covers the hardware I personally own and can validate against a live hub. Anything beyond that — the **video stream from cameras**, less common device families, or features I don't have on my own install — depends on input from people who do own that hardware. There's no realistic way for me to extend coverage to devices I can't try myself.
+
+Areas where the integration could grow with community input:
+
+- **Video streaming** (live view on MotionCam Video, Video Edge cameras) — the biggest open gap.
+- **Bidirectional WaterStop control** — read-only valve entity ships since `1.3.0`; full open / close is still pending.
+- **SpaceControl (keyfob) events**, **per-device firmware updates**, **device settings** (sensitivity, brightness, chime mode, alert thresholds).
+- **Co-branded apps** the integration doesn't yet recognise in the `App Label` dropdown.
+- **Any new device family** that shows up in the snapshot without entities.
+
+If you own any of these and would like it covered, open an issue on the [tracker](https://github.com/bvis/aegis-hass/issues/new) describing what you have and what's missing. Diagnostics dumps and debug logs from your install (Settings → Devices & Services → Aegis for Ajax → ⋮ → Download diagnostics, plus `custom_components.aegis_ajax: debug` in the logger config when relevant) are usually the most useful starting point — we can iterate over beta releases against your hardware until it works. Without that kind of involvement from people running the affected hardware, the integration can only cover what I personally use.
+
 ## Push Notifications (Optional, but strongly recommended)
 
 The integration can run with or without Firebase Cloud Messaging (FCM) push, but the two configurations behave very differently:
