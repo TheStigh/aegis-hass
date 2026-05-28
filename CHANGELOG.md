@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.4] - 2026-05-28
+
+Orphaned bypass switches are now cleaned up automatically.
+
+### Fixed
+- **Orphaned `bypass` switches are removed automatically.** When the `bypass_switches` option changes to `never` (or `auto` loses the `DEVICE_EDIT` permission on a hub), the previously created `switch.*_bypass` entities are now evicted from the entity registry on reload instead of lingering as `unavailable` until manually deleted. This closes the caveat noted in 1.7.0-beta.3. Mirrors the video-doorbell device eviction (#173) at the entity-registry level; channel switches and other entities are never touched.
+
+### Internal
+- Stopped excluding `api/hts/client.py` from coverage reporting — the most complex module (the encrypted HTS auth handshake and protocol framing) was hidden, masking that it sat at 67%. Added tests for the 4-step `_authenticate` handshake (happy path, server sequence adoption, and every error branch), `_read_frame` buffer extraction, and `connect()` success / dial-failure wrapping, taking the file to 81% with the honest project total unchanged at 88%.
+
 ## [1.7.0-beta.3] - 2026-05-28
 
 Graceful handling of device-command permission denials, especially for bypass.
