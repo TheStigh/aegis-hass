@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.8] - 2026-05-29
+
+Video-doorbell motion now reaches the doorbell card; doorbell entity uses HA's canonical ring event.
+
+### Fixed
+- **Video-doorbell motion is attributed to the doorbell device (#173).** Motion pushes from a video doorbell previously landed only on the hub event entity, never flipping the doorbell's own motion sensor. The push carries the Jeweller twin id, but the video-doorbell dedup drops that twin in favour of its `video_edge` sibling, so the id was no longer in the device set and motion (which has no single-doorbell fallback) resolved to nothing. The dedup now records a twin→sibling alias and push attribution resolves through it — fixing motion and making doorbell ring attribution robust on multi-doorbell installs.
+- **Doorbell event entity uses the canonical `ring` event type (#173).** The per-device doorbell entity has `device_class=doorbell` but advertised `doorbell_pressed`, which Home Assistant warns about and will reject from HA 2027.4. It now advertises and emits `ring`. Automations triggered on this entity's event type must use `ring`; the hub-level security event still fires `doorbell_pressed`.
+
 ## [1.7.0-beta.7] - 2026-05-29
 
 Diagnostic groundwork for SmartLock control from Home Assistant (#206).
