@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.7] - 2026-05-29
+
+Diagnostic groundwork for SmartLock control from Home Assistant (#206).
+
+### Added
+- **Read-only SmartLock id probe (#206).** Locking/unlocking a Yale / LockBridge lock **from Home Assistant** fails with `smart_lock_not_found` because the command is sent with the hub-device id, while the service expects the smart-lock's own id — which the hub-device doesn't expose in-band. A one-shot, DEBUG-gated, fully-guarded probe now calls `SmartLockService.findAllBySpace` once at setup (only when a lock is present) and logs the lock's identifiers next to the hub-device ids, so the correct id can be correlated and the command wired in a later beta. Device names are never logged; no behaviour change for any entity.
+
 ## [1.7.0-beta.6] - 2026-05-29
 
 SmartLock / Yale LockBridge state now updates instead of showing greyed out.
