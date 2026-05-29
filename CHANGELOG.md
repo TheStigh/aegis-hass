@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.6] - 2026-05-29
+
+SmartLock / Yale LockBridge state now updates instead of showing greyed out.
+
+### Fixed
+- **SmartLock / Yale LockBridge state is read again (#206).** Locks rendered greyed out (state `unknown`) because current firmware stopped emitting the bare-enum `smart_lock` status (field 66) and now pushes the lock state as a sub-message on field 99 of `LightDeviceStatus`, which our compiled proto did not define — so it was dropped as an unsupported status and `smart_lock_state` was never populated. The field is now defined and parsed in the snapshot, the live stream, and the coordinator. The inner value is inverted relative to the old enum, so it is mapped empirically (`1=locked`, `2=open`), cross-confirmed against the device's local HTS signal and the reporter's lock/unlock timestamps. The field-66 path is kept for older firmware. Lock state updates on change (push-on-change), so it remains `unknown` until the first lock/unlock after a restart.
+
+### Known limitation
+- Operating the lock **from Home Assistant** still fails (`smart_lock_not_found`): the command service expects the smart-lock's own id, not the hub-device id. A fix needs the id↔device correlation from a follow-up capture and will land in a later beta.
+
 ## [1.7.0-beta.5] - 2026-05-29
 
 Security & robustness audit remediation. No behaviour change for healthy installs.
