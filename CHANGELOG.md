@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-05-30
+
+Doorbell, lock and bypass improvements, plus thread-safety and reliability fixes. Consolidates the 1.6.2-beta and 1.7.0-beta series.
+
+### Added
+- **Per-device doorbell `event` entity.** Video-edge doorbells get their own `event` entity (`device_class: doorbell`) on the doorbell device card, advertising and emitting Home Assistant's canonical `ring` event. (#173)
+- **Doorbell motion turns the doorbell's motion sensor on.** Video-edge doorbells report motion only over FCM push; a motion push now flips the doorbell's `motion_detected` on with a 30-second auto-off, attributed to the doorbell via the push device id (a twin→sibling alias keeps attribution correct on multi-doorbell installs). (#173)
+- **Device automation triggers.** Every Ajax security event (alarm, arm, disarm, night mode, motion, door open, doorbell, fire, flood, CO, glass break, tamper, panic, battery low, connection lost, malfunction) is now a named device trigger on the hub device, selectable in the automation editor. Translated across all 14 locales.
+- **Per-device bypass switch + `bypass_switches` option (auto / always / never).** Each non-hub device gets a `bypass` switch to deactivate/reactivate it. `auto` (default) only creates them when the account holds the `DEVICE_EDIT` permission; `always` keeps the previous behaviour; `never` disables them. Orphaned bypass switches are evicted automatically when the option changes. Translated across all 14 locales.
+
+### Fixed
+- **SmartLock / Yale LockBridge state is read again (#206).** Current firmware moved the lock state to a sub-message on field 99 of `LightDeviceStatus`, which was dropped as unsupported; it is now defined and parsed in the snapshot, the live stream and the coordinator, mapped empirically (`1=locked`, `2=open`). State is push-on-change, so it reads `unknown` until the first lock/unlock after a restart.
+- **LeakProtect units now get their leak (moisture) binary_sensor (#211).** The sensor was keyed on `leaks_protect` but the device type is `leak_protect`, so it never appeared — only the generic tamper/temperature/battery entities did.
+- **FCM push events are dispatched on the event loop (thread-safety).** Hub-level and per-device (doorbell) event entities were updated directly from the FCM worker thread, and the motion auto-off ran in an executor thread via a non-`@callback` timer — both wrote entity state off-loop (a storm of `async_write_ha_state from a thread other than the event loop` errors). All push and timer paths now run on the loop. (#173)
+- **HTS connection survives a malformed frame** instead of tearing the whole connection down and blanking hub-network sensors until the next poll.
+- **Doorbell ring no longer double-fires** — the per-device doorbell entity updates its own state only.
+- **Clear, translated errors when the hub rejects a device command** (no permission, hub offline, wrong state) instead of a generic failure. Applies to switch on/off, bypass and brightness.
+- **Duplicate video-doorbell card no longer survives restarts (#173).** The dedup re-runs across the full merged device set and evicts the ghost from the device registry.
+- **FCM 403 warning names `API_KEY_SERVICE_BLOCKED` alongside `API_KEY_ANDROID_APP_BLOCKED`** (#194) — both 403 sub-codes share the same wrong-key cause.
+- **gRPC channels no longer leak on failed setup or failed config-flow login**, `set_photo_on_demand_mode` is removed on unload, and `CancelledError` during login is re-raised for clean shutdown.
+
+### Known limitation
+- **Locking/unlocking a Yale lock from Home Assistant is not yet supported (#206).** Lock *state* is shown correctly, but these hub-attached Yale (Assa Abloy) locks aren't listed in the Ajax SmartLock service, so the command path can't address them yet. Tracked as a follow-up.
+
+### Internal
+- **Security/performance audit remediation (#208):** FCM worker-thread state-write fix, photo-URL log redaction, S3 SSRF anchor, HTS malformed-frame containment, read-buffer cap.
+- **Parser extractions:** proto-to-`Device` logic into `api/devices_parser.py` and FCM event parsers into `notification_event_parser.py`; `manifest.json` is now the single source of truth for the version. No behaviour change.
+
 ## [1.7.0-beta.12] - 2026-05-30
 
 Sharper SmartLock diagnostic for #206.
