@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.12] - 2026-05-30
+
+Sharper SmartLock diagnostic for #206.
+
+### Changed
+- **SmartLock probe logs the failure sub-case (#206).** beta.9 showed `findAllBySpace` returns zero locks at both the default and a bumped client-version (ruling out a version gate) and `findAllAvailableToAdd` returns a failure — but only the generic `failure` was logged. The probe now records the inner error case (`external_service_access_denied` / `permission_denied` / `bad_request` / `space_not_found` / `space_armed`), which determines whether HA-side lock control is recoverable or a backend limitation. Read-only, DEBUG-only, no behaviour change.
+
 ## [1.7.0-beta.11] - 2026-05-30
 
 Restores the leak sensor for LeakProtect devices (#211).
