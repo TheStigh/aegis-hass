@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.9] - 2026-05-30
+
+Sharper diagnostic for SmartLock control from Home Assistant (#206).
+
+### Changed
+- **SmartLock probe now disambiguates why the command service can't find the lock (#206).** beta.7's probe showed `SmartLockService.findAllBySpace` returns `success` with an *empty* lock list for the reporter's Yale (Assa Abloy) locks — so the HA-side `smart_lock_not_found` is not a wrong-id problem; the command service doesn't list these locks at all. Since `SmartLockType` only covers Assa Abloy / Yale, this v2 service is the correct one, leaving two causes: a client-version gate (the Ajax server silently drops feature fields keyed on the reported `client-version-major`, as seen with `monitoring_companies`) or locks present at the bridge but not enrolled. The read-only, DEBUG-gated probe now captures both in one startup: `findAllBySpace` at the default client-version and again with a bumped one, plus `findAllAvailableToAdd` for both Assa Abloy variants. Device names are never logged; diagnostic-only, no entity behaviour change.
+
 ## [1.7.0-beta.8] - 2026-05-29
 
 Video-doorbell motion now reaches the doorbell card; doorbell entity uses HA's canonical ring event.
