@@ -16,26 +16,6 @@ Alexa voice control, siren temperature, and an FCM-registration hardening. Conso
 ### Changed
 - **Don't re-attempt FCM registration for credentials Google already rejected (#227).** A well-formed-but-wrong FCM api-key was re-tried against the cobranded Firebase project on every Home Assistant restart, because rejected credentials are never persisted. The integration now remembers a terminally-rejected credential set by a one-way hash (the secret is never stored) and skips the network attempt until the values change, keeping the Repair card raised; transient / host-unreachable failures stay retryable.
 
-## [1.8.0-beta.4] - 2026-06-01
-
-### Changed
-- **Don't re-attempt FCM registration for credentials Google already rejected (#227).** When the entered FCM api-key is well-formed but wrong (e.g. a non-FCM `AIza…` key extracted from the app), registration credentials are never persisted, so the integration used to re-attempt the registration against the cobranded Firebase project on every Home Assistant restart. It now remembers a terminally-rejected credential set by a one-way hash (the secret is never stored) and skips the network attempt until the values change, keeping the Repair card raised. Transient / host-unreachable failures stay retryable, and a successful registration or a changed credential set clears the marker.
-
-## [1.8.0-beta.3] - 2026-06-01
-
-### Fixed
-- **Siren temperature sensor now actually appears on push-heavy hubs (#220).** The refresh added in `1.8.0-beta.1` ran only inside the scheduled poll, but on hubs with an active HTS stream every push calls `async_set_updated_data`, which resets Home Assistant's poll timer — so the scheduled poll never fired again after startup and the refresh was starved (the sensor never materialised). It now runs on a dedicated 15-minute timer, independent of the poll, with a non-blocking initial fetch at startup so the sensor shows up within seconds instead of waiting for a poll that never comes.
-
-## [1.8.0-beta.2] - 2026-05-31
-
-### Added
-- **Alexa / Home Assistant Cloud support for the alarm panel (#221).** The alarm panel now advertises `ARM_HOME` and reports `code_format: number` when a PIN is configured, which makes the Nabu Casa / Alexa skill discover the panel (it wouldn't discover a panel exposing Night without Home) and lets the Home Assistant Lovelace alarm card render a numeric keypad. Ajax has a single partial-arm mode ("Night mode"), so **Arm Home** maps to it just like **Arm Night** — both settle to `armed_night`; it is kept under both names to cover the HA/Alexa convention (Home) and Ajax's own term (Night). For per-group panels, Arm Home maps to the single group-arm command. Alexa caveats (documented in the README): the panel must not require a code to arm to be discovered, and Alexa's voice PIN disarm only supports 4-digit codes.
-
-## [1.8.0-beta.1] - 2026-05-31
-
-### Added
-- **HomeSiren / StreetSiren internal temperature sensor (#220).** Sirens report their temperature in the Ajax app but not in the device stream we run continuously, so no sensor appeared. The value is now pulled from the per-device `StreamHubDevice` snapshot on a throttled cycle (every 15 min — temperature is slow-moving) and surfaced as the standard temperature sensor. Covers `street_siren`, `street_siren_plus_g3`, `home_siren`, `home_siren_g3`, `home_siren_s` and `home_siren_fibra`. The value is preserved across stream snapshots so the sensor doesn't flicker to `unknown`. Buzzer/sounding state is not included (it needs a different signal path).
-
 ## [1.7.0] - 2026-05-30
 
 Doorbell, lock and bypass improvements, plus thread-safety and reliability fixes. Consolidates the 1.6.2-beta and 1.7.0-beta series.
