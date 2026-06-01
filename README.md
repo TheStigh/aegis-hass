@@ -171,6 +171,8 @@ You can type any custom label during setup if yours is not listed.
 | Range extenders | ReX, ReX 2, ReX 2 Fire | Battery, signal |
 | Wired-Input Modules | MultiTransmitter, MultiTransmitter Fibra, Hub Hybrid wired inputs | Tamper of the module itself; each registered wired sensor appears as its own device with an alert binary sensor and an `alarm_type` attribute (intrusion / fire / glass_break / vibration / …) |
 
+> **Siren temperature is the internal (board) temperature**, not room ambient — it's the only temperature the siren reports over the protocol. On an **indoor HomeSiren** the board sits close to ambient, so it tracks the value shown in the Ajax app. On an **outdoor StreetSiren** the enclosure heats up in the sun, so the board can read several degrees above shade-ambient — a genuine reading of the device, not a calibration bug. The value moves in ~2 °C steps and updates slowly (matching the app), refreshed on a 15-minute cycle.
+
 ## Photo on Demand
 
 MotionCam **PhOD** (Photo on Demand) models support capturing photos remotely:
