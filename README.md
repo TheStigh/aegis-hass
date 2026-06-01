@@ -91,6 +91,19 @@ Click the button above, or manually:
 4. Select which spaces (hubs) to add
 5. Done
 
+> **Recommended: use a dedicated, limited Ajax account.** Instead of your primary
+> admin login, create a separate Ajax account, invite it to your space (Ajax app →
+> space → Users → Invite) and grant it only what the integration needs. A non-admin
+> **User** role is enough to read device state and arm / disarm. You can also revoke
+> its **photo / video** access if you don't use Photo on Demand, so Home Assistant
+> never has access to camera images. This keeps your main credentials out of HA and
+> limits what a compromised HA host could reach in your Ajax installation.
+>
+> Trade-offs to know: without photo / video permission the MotionCam Photo-on-Demand
+> button won't work, and per-device bypass switches need the account to hold the
+> device-deactivation (`DEVICE_EDIT`) permission — the default `bypass_switches: auto`
+> simply won't create them for an account that lacks it.
+
 ### Options
 
 After setup, configure these in **Settings > Devices & Services > Aegis for Ajax > Configure**:
@@ -396,6 +409,16 @@ The integration can run with or without Firebase Cloud Messaging (FCM) push, but
 | Hub network info, SIM info, room / space topology | Polled | Polled |
 
 If you cannot configure FCM, the integration still works as a polled view of your Ajax installation, but automations that rely on alarm-panel events will not fire. You can dismiss the related Repair card; the integration will not break.
+
+> **Alternative to FCM: Ajax's SIA stream.** If you'd rather not extract Firebase
+> credentials at all, many Ajax hubs can stream events to Home Assistant's built-in
+> [SIA integration](https://www.home-assistant.io/integrations/sia/) (set up a
+> monitoring-station / SIA receiver on the hub pointing at HA's SIA server). SIA is
+> **read-only and instant**, so a clean setup is to use **SIA for live status**
+> (arm / disarm / alarm) and **Aegis for sending commands** (arm, disarm, bypass,
+> panic, switches, locks) — in which case you can skip the FCM setup entirely and
+> dismiss its Repair card. Aegis still streams device sensor state over gRPC either
+> way; SIA just covers the alarm-panel events that would otherwise rely on FCM.
 
 ### The four values
 
