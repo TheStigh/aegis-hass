@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-01
+
+Alexa voice control, siren temperature, and an FCM-registration hardening. Consolidates the 1.8.0-beta series.
+
+### Added
+- **Alexa / Home Assistant Cloud support for the alarm panel (#221).** The alarm panel now advertises `ARM_HOME` and reports `code_format: number` when a PIN is configured, so the Nabu Casa / Alexa skill discovers it (it won't discover a panel exposing Night without Home) and the Lovelace alarm card renders a numeric keypad. Ajax has a single partial-arm mode ("Night mode"), so **Arm Home** maps to it just like **Arm Night** (both settle to `armed_night`), kept under both names. A bare Alexa "arm" defaults to Armed Home (Alexa's own behaviour); see the README for the away-mode / Routine workarounds and the discovery caveats (no code required to arm; 4-digit voice PIN only).
+- **HomeSiren / StreetSiren internal temperature sensor (#220).** Sirens report their internal (board) temperature, which isn't carried in the device stream the integration runs continuously, so no sensor appeared. The value is now pulled from the per-device snapshot on a dedicated 15-minute timer (with an initial fetch at startup) and surfaced as the standard temperature sensor. On indoor HomeSirens this tracks the Ajax app; on outdoor StreetSirens the board runs warmer than shade-ambient (documented). Covers the HomeSiren / StreetSiren family.
+
+### Changed
+- **Don't re-attempt FCM registration for credentials Google already rejected (#227).** A well-formed-but-wrong FCM api-key was re-tried against the cobranded Firebase project on every Home Assistant restart, because rejected credentials are never persisted. The integration now remembers a terminally-rejected credential set by a one-way hash (the secret is never stored) and skips the network attempt until the values change, keeping the Repair card raised; transient / host-unreachable failures stay retryable.
+
 ## [1.8.0-beta.4] - 2026-06-01
 
 ### Changed
