@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - unreleased
+
+### Added
+- **Outdoor curtain PIR internal temperature sensor (#229).** MotionProtect Curtain Outdoor detectors report their internal temperature only in the rich per-device snapshot (same as sirens, #220), so no sensor appeared. The per-device temperature refresh is now device-agnostic and covers them.
+- **`aegis_ajax.disarm_night_mode` service (#233).** Stands down only the night-mode groups via Ajax's native `disarmFromNightMode`, leaving independently away-armed groups armed — previously, exiting night mode required a full disarm that also stood down those groups. Optional alarm-panel target; applies to all panels when omitted.
+
+### Fixed
+- **SmartLock / Yale lock now locks and unlocks from Home Assistant (#219).** Hub-attached Jeweller locks (including installer-added Yale modules on a third-party monitoring backend) aren't in the SmartLock cloud registry, so the command is issued through the generic device on/off path: lock = On, unlock = Off, sent with the generic `smart_lock` ObjectType on channel 1. (Lock *state* was already restored in 1.7.0.)
+- **Device stream resumes after a peer reset instead of going silent for hours (#236).** The reconnect loop reused a possibly half-open cached gRPC channel; the retried stream neither errored nor delivered until a full restart. The channel is now recreated on reconnect.
+- **System Information card no longer flips to "unreachable" on a healthy install (#236).** Reachability was derived only from the polled-refresh timestamp, which HTS/FCM updates starve. It now treats the integration as reachable if any live path (poll, HTS, or a recent push) is healthy.
+- **Reconfiguring to a different Ajax account updates the entry title and unique_id on the first try (#241).** Previously the integration's front page kept the old email until a second reconfigure.
+- **No phantom Carbon-monoxide sensor on Heat/Smoke FireProtect 2 units (#231).** The generic `fire_protect_two` mapping blanket-attached a CO sensor stuck at "Clear"; CO is dropped from the generic mapping (only CO-encoded SKUs keep it). Smoke + heat are unchanged, and a real CO alarm on a CO-equipped unit still arrives via push.
+
+### Documentation
+- **Recommend a separate Ajax account with notification access for reliable push (#234).** A limited User-role account registers for FCM but receives no events; the Home Assistant account needs its own login and notification access.
+
 ## [1.8.0] - 2026-06-01
 
 Alexa voice control, siren temperature, and an FCM-registration hardening. Consolidates the 1.8.0-beta series.
