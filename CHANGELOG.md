@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.1] - unreleased
+## [1.9.0] - unreleased
 
 ### Added
 - **Hub Chime enable/disable switch (#239).** A per-hub `Chime` switch toggles the hub-wide Chime (the Ajax app's bottom-left toggle that plays a tone on opening monitored doors while disarmed). State is read from the hub's `chime_status` in the space snapshot (the same field the app shows) and reflects changes made from the app; toggling requires the account's `EDIT_CHIMES` permission, surfacing a clear error otherwise. Only created for hubs that expose the feature. Translated across all 14 locales.
