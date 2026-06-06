@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.10.0] - unreleased
+## [1.10.0] - 2026-06-06
 
 ### Added
 - **"I don't use push notifications" opt-out to silence the FCM reminder for good (#252).** Users who deliberately run without push saw the "FCM not configured" Repair card return after every restart. The card is fixable (it opens the credentials form), so closing that form is easy to mistake for dismissing the issue — but it never records Home Assistant's per-issue dismissal, so the card legitimately came back. A new **I don't use push notifications** option (Configure, off by default) suppresses the recurring card and the WARNING log and clears any card already shown; enable it once and the reminder never returns. Real-time push stays off until FCM is configured — this only hides the reminder. Translated across all 14 locales.
