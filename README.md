@@ -106,9 +106,10 @@ Click the button above, or manually:
 >
 > **This also matters for real-time updates.** Running the *same* Ajax account in
 > both your phone app and Home Assistant can prevent instant push notifications from
-> reaching HA — changes you make from the app (arm / disarm, sensor events) would
-> then only appear on the next poll instead of immediately. Giving HA its own account
-> avoids this contention.
+> reaching HA — real-time event notifications (alarm, doorbell, motion and other
+> sensor events) would then not reach HA reliably. Giving HA its own account avoids
+> this contention. (Arm / disarm panel state still follows within ~1 s via the hub's
+> status channel, with or without push.)
 >
 > Trade-offs to know: without photo / video permission the MotionCam Photo-on-Demand
 > button won't work, and per-device bypass switches need the account to hold the
@@ -430,7 +431,7 @@ The integration can run with or without Firebase Cloud Messaging (FCM) push, but
 
 | Behaviour | With FCM | Without FCM |
 | --- | --- | --- |
-| Arm / disarm / night-mode state in the alarm panel | Real-time (push) | Up to 5 minutes late (next poll cycle) |
+| Arm / disarm / night-mode state in the alarm panel | Real-time (push) | Near-real-time (~1 s) — the hub emits a status event over its always-on channel that the integration uses to re-read the state, for both the space and per-group panels; the poll is the backstop |
 | Event entity firings (alarm, tamper, panic, doorbell ring, fire / smoke, CO, flood, glass break, motion, door open, battery low, connection lost, malfunction) | Real-time | Never — these only ride the FCM channel |
 | Photo-on-Demand URL retrieval (snapshot pulls) | Available | Not available |
 | Device sensor state (temperature, signal strength, open / closed contacts, …) | Real-time (gRPC stream) | Real-time (gRPC stream) |
