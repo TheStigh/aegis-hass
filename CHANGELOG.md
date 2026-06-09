@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.3] - 2026-06-10
+
+### Fixed
+- **The manual-refresh rate limiter no longer remembers hubs removed from the account (#276).** The per-hub map behind the manual refresh button gained an entry on every press and never dropped any, so hubs that left the account kept their entry for the life of the session. Entries are now pruned after each poll against the account's current hub set. Impact was negligible (a few bytes per removed hub), fixed for consistency with the cleanup discipline applied to every other cache in the integration.
+
+### Documentation
+- **Contributor setup now wires the local CI hooks automatically (#275).** A new one-time `make setup` step configures git to run the repository's pre-push hook (the full lint/typecheck/test pipeline in Docker) — previously a fresh clone never ran it unless the contributor discovered and configured it by hand.
+
 ## [1.11.2] - 2026-06-09
 
 ### Fixed
