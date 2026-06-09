@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.2] - 2026-06-09
+
+### Fixed
+- **Photo-on-demand and notification-id handoff no longer touches asyncio state from the push worker thread (#274).** The FCM push callback runs on the firebase_messaging worker thread; the futures that hand a photo URL / notification id back to a waiting camera or button request were resolved inline on that thread, which is not thread-safe and raced the request's own timeout cleanup — a recipe for intermittent, hard-to-reproduce failures when a photo push arrived while Home Assistant was busy, plus a latent crash path if the wait timed out at exactly the wrong moment. Resolution is now marshaled onto the event loop, like every other push dispatch already was.
+
 ## [1.11.1] - 2026-06-08
 
 ### Fixed
